@@ -24,17 +24,18 @@ sh mkdir -p asic/reports
 
 set_svf "asic/${top_mod}.svf";
 
-set search_path "$search_path SAED_EDK90nm_ccs_models_svt/"
-# set search_path "$search_path /umbc/software/design_kits/SAED14nm/lib/stdcell_rvt"
+set DESIGN_REF_PATH		  "/data/craig_work/skywater-pdk/vendor/synopsys/results"
+
+set search_path "$search_path ${DESIGN_REF_PATH}/lib/sky130_fd_sc_hd/db_nldm"
 
 
-set rvt_library "SAED_EDK90nm_ccs_models_svt/saed90nm_typ_ccs.db"
+set rvt_library [glob -directory ${DESIGN_REF_PATH}/lib/sky130_fd_sc_hd/db_nldm sky130_fd_sc_hd_tt_*.db]
 
 set link_library "$rvt_library"
 set target_library "$rvt_library"
 
 
-create_mw_lib prototype_$top_mod -technology SAED_EDK90nm/Technology_Kit/milkyway/saed90nm_icc_1p9m.tf  -mw_reference_library { SAED_EDK90nm/Digital_Standard_cell_Library/lef/saed90nm.lef }
+create_mw_lib prototype_$top_mod -technology ${DESIGN_REF_PATH}/tech/milkyway/skywater130_fd_sc_hd.tf  -mw_reference_library { $DESIGN_REF_PATH/lib/mw }
 
 
 open_mw_lib prototype_$top_mod

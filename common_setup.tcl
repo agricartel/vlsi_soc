@@ -11,7 +11,7 @@ set DESIGN_NAME                   "des3"  ;
 
 ## Point to the new 14nm SAED libs
 #set DESIGN_REF_PATH "/remote/exchange/synopsys/SAED14_EDK"
-set DESIGN_REF_PATH		  "/umbc/software/design_kits/SAED14nm"
+set DESIGN_REF_PATH		  "/data/craig_work/skywater-pdk/vendor/synopsys/results"
 set IP [pwd]
 set DESIGN_REF_TECH_PATH          "${DESIGN_REF_PATH}/tech"
 
