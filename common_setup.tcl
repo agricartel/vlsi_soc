@@ -41,10 +41,10 @@ set ADDITIONAL_SEARCH_PATH      " \
 
 
 #multi_voltage
-set LINK_LIBRARY_FILES   [glob -directory ${DESIGN_REF_PATH}/lib/sky130_fd_sc_hd/db_nldm *.db]
+set LINK_LIBRARY_FILES   "sky130_fd_sc_hd__ss_n40C_1v28.db"
 
 #multi_voltage
-set TARGET_LIBRARY_FILES   [glob -directory ${DESIGN_REF_PATH}/lib/sky130_fd_sc_hd/db_nldm *.db]
+set TARGET_LIBRARY_FILES   "sky130_fd_sc_hd__ss_n40C_1v28.db"
 
 set NDM_REFERENCE_LIB_DIRS  " \
         ${DESIGN_REF_PATH}/lib/sky130_fd_sc_hd/ndm/sky130_fd_sc_hd.ndm \
@@ -54,9 +54,9 @@ set NDM_REFERENCE_LIB_DIRS  " \
 set MW_REFERENCE_CONTROL_FILE     ""  ;#  Reference Control file to define the MW ref libs
 
 set TECH_FILE                     "${DESIGN_REF_PATH}/tech/milkyway/skywater130_fd_sc_hd.tf"  ;#  Milkyway technology file
-set MAP_FILE                      "${DESIGN_REF_PATH}/tech/star_rcxt/saed14nm_tf_itf_tluplus.map"  ;#  Mapping file for TLUplus
-set TLUPLUS_MAX_FILE              "${DESIGN_REF_PATH}/tech/star_rcxt/max/saed14nm_1p9m_Cmax.tluplus"  ;#  Max TLUplus file
-set TLUPLUS_MIN_FILE              "${DESIGN_REF_PATH}/tech/star_rcxt/min/saed14nm_1p9m_Cmin.tluplus"  ;#  Min TLUplus file
+set MAP_FILE                      "${DESIGN_REF_PATH}/tech/star_rcxt/skywater130.mw2itf.map"  ;#  Mapping file for TLUplus
+set TLUPLUS_MAX_FILE              "${DESIGN_REF_PATH}/tech/star_rcxt/skywater130.nominal.tluplus"  ;#  Max TLUplus file
+set TLUPLUS_MIN_FILE              "${DESIGN_REF_PATH}/tech/star_rcxt/skywater130.nominal.tluplus"  ;#  Min TLUplus file
 # TODO: do these
 # set GDS_MAP_FILE          	  "${DESIGN_REF_PATH}/tech/milkyway/saed14nm_1p9m_gdsout_mw.map"
 # set STD_CELL_GDS		  "${DESIGN_REF_PATH}/lib/stdcell_rvt/gds/saed14rvt.gds"

@@ -29,13 +29,16 @@ set DESIGN_REF_PATH		  "/data/craig_work/skywater-pdk/vendor/synopsys/results"
 set search_path "$search_path ${DESIGN_REF_PATH}/lib/sky130_fd_sc_hd/db_nldm"
 
 
-set rvt_library [glob -directory ${DESIGN_REF_PATH}/lib/sky130_fd_sc_hd/db_nldm sky130_fd_sc_hd_tt_*.db]
+set rvt_library [glob -directory ${DESIGN_REF_PATH}/lib/sky130_fd_sc_hd/db_nldm sky130_fd_sc_hd__tt_*.db]
 
 set link_library "$rvt_library"
 set target_library "$rvt_library"
 
+set MW_REFERENCE_LIB_DIRS  " \
+        ${DESIGN_REF_PATH}/lib/sky130_fd_sc_hd/mw/sky130_fd_sc_hd
+       "
 
-create_mw_lib prototype_$top_mod -technology ${DESIGN_REF_PATH}/tech/milkyway/skywater130_fd_sc_hd.tf  -mw_reference_library { $DESIGN_REF_PATH/lib/mw }
+create_mw_lib prototype_$top_mod -technology ${DESIGN_REF_PATH}/tech/milkyway/skywater130_fd_sc_hd.tf  -mw_reference_library { $MW_REFERENCE_LIB_DIRS }
 
 
 open_mw_lib prototype_$top_mod
@@ -54,6 +57,7 @@ set_clock_uncertainty 0.072 [get_clock clk]
 set_input_delay 0.1 -clock clk [all_inputs]
 set_output_delay 0.1 -clock clk [all_outputs]
 
+#set link_library [glob -directory ${DESIGN_REF_PATH}/lib/sky130_fd_sc_hd/db_nldm sky130_fd_sc_hd__tt_*.db]
 
 compile_ultra
 
