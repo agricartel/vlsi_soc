@@ -11,7 +11,8 @@ set DESIGN_NAME                   "des3"  ;
 
 ## Point to the new 14nm SAED libs
 #set DESIGN_REF_PATH "/remote/exchange/synopsys/SAED14_EDK"
-set DESIGN_REF_PATH		  "/data/craig_work/skywater-pdk/vendor/synopsys/results"
+set SKYWATER_PATH                      "/data/craig_work/skywater-pdk"
+set DESIGN_REF_PATH		  "${SKYWATER_PATH}/vendor/synopsys/results"
 set IP [pwd]
 set DESIGN_REF_TECH_PATH          "${DESIGN_REF_PATH}/tech"
 
@@ -57,7 +58,7 @@ set TECH_FILE                     "${DESIGN_REF_PATH}/tech/milkyway/skywater130_
 set MAP_FILE                      "${DESIGN_REF_PATH}/tech/star_rcxt/skywater130.mw2itf.map"  ;#  Mapping file for TLUplus
 set TLUPLUS_MAX_FILE              "${DESIGN_REF_PATH}/tech/star_rcxt/skywater130.nominal.tluplus"  ;#  Max TLUplus file
 set TLUPLUS_MIN_FILE              "${DESIGN_REF_PATH}/tech/star_rcxt/skywater130.nominal.tluplus"  ;#  Min TLUplus file
-# TODO: do these
+# TODO: update these
 # set GDS_MAP_FILE          	  "${DESIGN_REF_PATH}/tech/milkyway/saed14nm_1p9m_gdsout_mw.map"
 # set STD_CELL_GDS		  "${DESIGN_REF_PATH}/lib/stdcell_rvt/gds/saed14rvt.gds"
 # set SRAMLP_SINGLELP_GDS		  "${DESIGN_REF_PATH}/lib/sram_lp/gds/singlelp.gds"
