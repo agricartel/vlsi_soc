@@ -1,0 +1,3570 @@
+diff --git a/docs/requirements.txt b/docs/requirements.txt
+index d63f78d..37e7980 100644
+--- a/docs/requirements.txt
++++ b/docs/requirements.txt
+@@ -4,11 +4,13 @@ docutils
+ sphinx
+ sphinx-autobuild
+ 
++# Verilog domain
++sphinx-verilog-domain
+ # Verilog diagrams using Yosys + netlistsvg
+-git+https://github.com/SymbiFlow/sphinxcontrib-verilog-diagrams.git#egg=sphinxcontrib-verilog-diagrams
++sphinxcontrib-hdl-diagrams
+ 
+ # Module diagrams
+-symbolator
++git+https://github.com/SymbiFlow/symbolator.git#egg=symbolator
+ 
+ # pycairo
+ # vext.gi
+diff --git a/environment.yml b/environment.yml
+index 18e9369..3609e6d 100644
+--- a/environment.yml
++++ b/environment.yml
+@@ -19,11 +19,11 @@ channels:
+ - conda-forge
+ - defaults
+ dependencies:
+-- python
++- python 3.10
+ - pip
+ - yosys
+ - netlistsvg
+ # Packages installed from PyPI
+ - pip:
+-  - -r file:requirements.txt
+-  - -r file:docs/requirements.txt
++  - -r requirements.txt
++    #  - -r docs/requirements.txt
+diff --git a/vendor/synopsys/Makefile b/vendor/synopsys/Makefile
+new file mode 100644
+index 0000000..b3c7ff5
+--- /dev/null
++++ b/vendor/synopsys/Makefile
+@@ -0,0 +1,65 @@
++LIBRARIES = ../../../libraries
++
++LIB_NAME = sky130_fd_sc_hd
++
++ROOT = $(realpath .)
++SCRIPTS = $(ROOT)/scripts
++RESULTS_DIR = $(ROOT)/results
++LIBS_DIR = $(RESULTS_DIR)/lib
++TECH_DIR = $(RESULTS_DIR)/tech
++OUTPUT_DIR = $(LIBS_DIR)/$(LIB_NAME)
++LOGS = $(ROOT)/logs
++
++COMMON_OPTIONS = 'set target_lib_dir $(LIBRARIES)/$(LIB_NAME)/latest; set target_lib_name $(LIB_NAME); set output_dir $(OUTPUT_DIR)'
++LC_OPTIONS = -x $(COMMON_OPTIONS)
++LM_OPTIONS = -x $(COMMON_OPTIONS)
++MW_OPTIONS = $(COMMON_OPTIONS)
++
++all: $(LIB_NAME)_ndm tech
++
++setup:
++	test -d work || mkdir work
++	test -d $(OUTPUT_DIR) || mkdir -p $(OUTPUT_DIR)
++	test -d $(LOGS) || mkdir $(LOGS)
++	test -d $(TECH_DIR) || mkdir -p $(TECH_DIR)
++	date > $@
++
++$(LIB_NAME)_db: setup
++	cd work && lc_shell -f $(SCRIPTS)/lc.tcl $(LC_OPTIONS) | tee $(LOGS)/lc_$@.log
++	#! grep -q '^Error' $(LOGS)/lc_$@.log
++	date > $@
++
++$(LIB_NAME)_mw: setup
++	cd work && echo $(MW_OPTIONS) > setup.tcl
++	cd work && Milkyway -nogui -file $(SCRIPTS)/mw.tcl | tee $(LOGS)/mw_$@.log
++	#! grep -q '^Error' $(LOGS)/mw_$@.log
++	date > $@
++
++$(LIB_NAME)_ndm: $(LIB_NAME)_db $(LIB_NAME)_mw setup
++	cd work && icc2_lm_shell -f $(SCRIPTS)/lm.tcl $(LM_OPTIONS) | tee $(LOGS)/lm_$@.log
++	date > $@
++
++techfile: setup
++	test -d $(TECH_DIR)/milkyway/ || mkdir $(TECH_DIR)/milkyway/
++	cp $(ROOT)/milkyway/sky130_fd_sc_hd.tf $(TECH_DIR)/milkyway/skywater130_fd_sc_hd.tf
++	date > $@
++
++tluplus: setup
++	test -d $(TECH_DIR)/star_rcxt/ || mkdir $(TECH_DIR)/star_rcxt/
++	cp $(ROOT)/milkyway/skywater130.mw2itf.map $(TECH_DIR)/star_rcxt/
++	cd work && grdgenxo -itf2TLUPlus -i $(ROOT)/star_rcxt/skywater130.nominal.itf -o $(TECH_DIR)/star_rcxt/skywater130.nominal.tluplus | tee $(LOGS)/$@.log
++	date > $@
++
++tech: techfile tluplus
++	date > $@
++
++clean: 
++	rm -rfv setup *_mw *_db *_ndm *_all techfile tluplus tech
++
++clean_all: clean
++	rm -rf work
++	rm -rf $(LOGS)
++	rm -rf $(RESULTS_DIR)
++
++# TODO:
++#all: sky130_fd_sc_hd sky130_fd_sc_hdll sky130_fd_sc_hs sky130_fd_sc_ls sky130_fd_sc_ms
+diff --git a/vendor/synopsys/README.md b/vendor/synopsys/README.md
+new file mode 100644
+index 0000000..4951b18
+--- /dev/null
++++ b/vendor/synopsys/README.md
+@@ -0,0 +1,12 @@
++Support files for setting up the technology on Synospys Flow
++Alpha quality, provided as-is, no guarantees.
++
++```
++git submodule update --init libraries/sky130_fd_sc_hd/latest
++make sky130_fd_sc_hd
++cd vendor/synopsys
++make sky130_fd_sc_hd_db
++make sky130_fd_sc_hd_mw
++make sky130_fd_sc_hd_ndm
++make tluplus
++```
+diff --git a/vendor/synopsys/lm_output.txt b/vendor/synopsys/lm_output.txt
+new file mode 100644
+index 0000000..4dd5891
+--- /dev/null
++++ b/vendor/synopsys/lm_output.txt
+@@ -0,0 +1,19 @@
++ 
++                              Library Manager (TM)
++
++                  Version R-2020.09 for linux64 - Sep 01, 2020
++  This release has significant feature enhancements. Please review the Release
++                       Notes associated with this release.
++
++                    Copyright (c) 1988 - 2020 Synopsys, Inc.
++   This software and the associated documentation are proprietary to Synopsys,
++ Inc. This software may only be used in accordance with the terms and conditions
++ of a written license agreement with Synopsys, Inc. All other use, reproduction,
++            or distribution of this software is strictly prohibited.
++
++lm_shell> exit
++Maximum memory usage for this session: 63.54 MB
++CPU usage for this session:      4 seconds (  0.00 hours)
++Elapsed time for this session:     15 seconds (  0.00 hours)
++Thank you for using Library Manager.
++
+diff --git a/vendor/synopsys/milkyway/sky130_fd_sc_hd.antenna.clf b/vendor/synopsys/milkyway/sky130_fd_sc_hd.antenna.clf
+new file mode 100644
+index 0000000..37e1b75
+--- /dev/null
++++ b/vendor/synopsys/milkyway/sky130_fd_sc_hd.antenna.clf
+@@ -0,0 +1,1809 @@
++defineGateSize "sky130_fd_sc_hd__sdlclkp_1" "CLK" 0.318
++defineDiodeProtection "sky130_fd_sc_hd__sdlclkp_1" "GCLK" '(0.429)
++defineGateSize "sky130_fd_sc_hd__sdlclkp_1" "GATE" 0.159
++defineGateSize "sky130_fd_sc_hd__sdlclkp_1" "SCE" 0.159
++defineGateSize "sky130_fd_sc_hd__sdlclkp_2" "CLK" 0.318
++defineGateSize "sky130_fd_sc_hd__sdlclkp_2" "GATE" 0.159
++defineGateSize "sky130_fd_sc_hd__sdlclkp_2" "SCE" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__sdlclkp_2" "GCLK" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__sdlclkp_4" "CLK" 0.4065
++defineGateSize "sky130_fd_sc_hd__sdlclkp_4" "GATE" 0.159
++defineGateSize "sky130_fd_sc_hd__sdlclkp_4" "SCE" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__sdlclkp_4" "GCLK" '(0.891)
++defineGateSize "sky130_fd_sc_hd__sedfxbp_1" "CLK" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__sedfxbp_1" "Q_N" '(0.429)
++defineGateSize "sky130_fd_sc_hd__sedfxbp_1" "SCD" 0.159
++defineGateSize "sky130_fd_sc_hd__sedfxbp_1" "DE" 0.318
++defineGateSize "sky130_fd_sc_hd__sedfxbp_1" "D" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__sedfxbp_1" "Q" '(0.462)
++defineGateSize "sky130_fd_sc_hd__sedfxbp_1" "SCE" 0.318
++defineGateSize "sky130_fd_sc_hd__sedfxbp_2" "CLK" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__sedfxbp_2" "Q_N" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__sedfxbp_2" "SCD" 0.159
++defineGateSize "sky130_fd_sc_hd__sedfxbp_2" "DE" 0.318
++defineGateSize "sky130_fd_sc_hd__sedfxbp_2" "D" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__sedfxbp_2" "Q" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__sedfxbp_2" "SCE" 0.318
++defineGateSize "sky130_fd_sc_hd__sedfxtp_1" "CLK" 0.159
++defineGateSize "sky130_fd_sc_hd__sedfxtp_1" "SCD" 0.159
++defineGateSize "sky130_fd_sc_hd__sedfxtp_1" "DE" 0.318
++defineGateSize "sky130_fd_sc_hd__sedfxtp_1" "D" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__sedfxtp_1" "Q" '(0.462)
++defineGateSize "sky130_fd_sc_hd__sedfxtp_1" "SCE" 0.318
++defineGateSize "sky130_fd_sc_hd__sedfxtp_2" "CLK" 0.159
++defineGateSize "sky130_fd_sc_hd__sedfxtp_2" "SCD" 0.159
++defineGateSize "sky130_fd_sc_hd__sedfxtp_2" "DE" 0.318
++defineGateSize "sky130_fd_sc_hd__sedfxtp_2" "D" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__sedfxtp_2" "Q" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__sedfxtp_2" "SCE" 0.318
++defineGateSize "sky130_fd_sc_hd__sedfxtp_4" "CLK" 0.159
++defineGateSize "sky130_fd_sc_hd__sedfxtp_4" "SCD" 0.159
++defineGateSize "sky130_fd_sc_hd__sedfxtp_4" "DE" 0.318
++defineGateSize "sky130_fd_sc_hd__sedfxtp_4" "D" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__sedfxtp_4" "Q" '(0.891)
++defineGateSize "sky130_fd_sc_hd__sedfxtp_4" "SCE" 0.318
++defineDiodeProtection "sky130_fd_sc_hd__tap_1" "VNB" '(0.08925)
++defineDiodeProtection "sky130_fd_sc_hd__tap_1" "VPB" '(0.14875)
++defineDiodeProtection "sky130_fd_sc_hd__tap_2" "VNB" '(0.33075)
++defineDiodeProtection "sky130_fd_sc_hd__tap_2" "VPB" '(0.55125)
++defineDiodeProtection "sky130_fd_sc_hd__tapvgnd_1" "VPB" '(0.14875)
++defineDiodeProtection "sky130_fd_sc_hd__tapvgnd2_1" "VPB" '(0.14875)
++defineGateSize "sky130_fd_sc_hd__xnor2_1" "B" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__xnor2_1" "Y" '(0.525)
++defineGateSize "sky130_fd_sc_hd__xnor2_1" "A" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__xnor2_2" "Y" '(0.913)
++defineGateSize "sky130_fd_sc_hd__xnor2_2" "A" 0.99
++defineGateSize "sky130_fd_sc_hd__xnor2_2" "B" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__xnor2_4" "Y" '(1.721)
++defineGateSize "sky130_fd_sc_hd__xnor2_4" "B" 1.98
++defineGateSize "sky130_fd_sc_hd__xnor2_4" "A" 1.98
++defineDiodeProtection "sky130_fd_sc_hd__xnor3_1" "X" '(0.449)
++defineGateSize "sky130_fd_sc_hd__xnor3_1" "B" 0.6615
++defineGateSize "sky130_fd_sc_hd__xnor3_1" "C" 0.381
++defineGateSize "sky130_fd_sc_hd__xnor3_1" "A" 0.246
++defineDiodeProtection "sky130_fd_sc_hd__xnor3_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__xnor3_2" "B" 0.6615
++defineGateSize "sky130_fd_sc_hd__xnor3_2" "C" 0.381
++defineGateSize "sky130_fd_sc_hd__xnor3_2" "A" 0.246
++defineDiodeProtection "sky130_fd_sc_hd__xnor3_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__xnor3_4" "B" 0.6615
++defineGateSize "sky130_fd_sc_hd__xnor3_4" "C" 0.381
++defineGateSize "sky130_fd_sc_hd__xnor3_4" "A" 0.246
++defineGateSize "sky130_fd_sc_hd__xor2_1" "B" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__xor2_1" "X" '(0.8005)
++defineGateSize "sky130_fd_sc_hd__xor2_1" "A" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__xor2_2" "X" '(0.65675)
++defineGateSize "sky130_fd_sc_hd__xor2_2" "B" 0.99
++defineGateSize "sky130_fd_sc_hd__xor2_2" "A" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__xor2_4" "X" '(1.52445)
++(defineHierAntennaProp "sky130_fd_sc_hd__xor2_4" "X" '(
++	 ("li1" 0 0 0 0 2.359 0 0)
++	 ("met1" 0 0 0 0 2.359 0 0)
++	 ("met2" 0 0 0 0 2.359 0 0)
++	 ("met3" 0 0 0 0 2.359 0 0)
++	 ("met4" 0 0 0 0 2.359 0 0)
++	 ("met5" 0 0 0 0 2.359 0 0)
++))
++defineGateSize "sky130_fd_sc_hd__xor2_4" "B" 1.98
++defineGateSize "sky130_fd_sc_hd__xor2_4" "A" 1.98
++defineDiodeProtection "sky130_fd_sc_hd__xor3_1" "X" '(0.449)
++defineGateSize "sky130_fd_sc_hd__xor3_1" "C" 0.381
++defineGateSize "sky130_fd_sc_hd__xor3_1" "B" 0.6615
++defineGateSize "sky130_fd_sc_hd__xor3_1" "A" 0.246
++defineDiodeProtection "sky130_fd_sc_hd__xor3_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__xor3_2" "C" 0.381
++defineGateSize "sky130_fd_sc_hd__xor3_2" "B" 0.6615
++defineGateSize "sky130_fd_sc_hd__xor3_2" "A" 0.246
++defineDiodeProtection "sky130_fd_sc_hd__xor3_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__xor3_4" "C" 0.381
++defineGateSize "sky130_fd_sc_hd__xor3_4" "B" 0.6615
++defineGateSize "sky130_fd_sc_hd__xor3_4" "A" 0.246
++defineGateSize "sky130_fd_sc_hd__or4b_2" "A" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__or4b_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__or4b_2" "C" 0.126
++defineGateSize "sky130_fd_sc_hd__or4b_2" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__or4b_2" "D_N" 0.126
++defineGateSize "sky130_fd_sc_hd__or4b_4" "D_N" 0.126
++defineGateSize "sky130_fd_sc_hd__or4b_4" "B" 0.2475
++defineGateSize "sky130_fd_sc_hd__or4b_4" "A" 0.2475
++defineGateSize "sky130_fd_sc_hd__or4b_4" "C" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__or4b_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__or4bb_1" "A" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__or4bb_1" "X" '(0.45375)
++defineGateSize "sky130_fd_sc_hd__or4bb_1" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__or4bb_1" "D_N" 0.126
++defineGateSize "sky130_fd_sc_hd__or4bb_1" "C_N" 0.126
++defineGateSize "sky130_fd_sc_hd__or4bb_2" "A" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__or4bb_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__or4bb_2" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__or4bb_2" "D_N" 0.126
++defineGateSize "sky130_fd_sc_hd__or4bb_2" "C_N" 0.126
++defineGateSize "sky130_fd_sc_hd__or4bb_4" "D_N" 0.126
++defineGateSize "sky130_fd_sc_hd__or4bb_4" "B" 0.2475
++defineGateSize "sky130_fd_sc_hd__or4bb_4" "A" 0.2475
++defineGateSize "sky130_fd_sc_hd__or4bb_4" "C_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__or4bb_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__probe_p_8" "A" 0.7425
++defineDiodeProtection "sky130_fd_sc_hd__probe_p_8" "X" '(1.782)
++(defineHierAntennaProp "sky130_fd_sc_hd__probe_p_8" "X" '(
++	 ("li1" 0 0 0 0 0.012 0 0)
++	 ("met1" 0 0 0 0 0.012 0 0)
++	 ("met2" 0 0 0 0 0.012 0 0)
++	 ("met3" 0 0 0 0 0.012 0 0)
++	 ("met4" 0 0 0 0 0.012 0 0)
++	 ("met5" 0 0 0 0 0.012 0 0)
++))
++defineGateSize "sky130_fd_sc_hd__probec_p_8" "A" 0.7425
++defineDiodeProtection "sky130_fd_sc_hd__probec_p_8" "X" '(1.782)
++(defineHierAntennaProp "sky130_fd_sc_hd__probec_p_8" "X" '(
++	 ("li1" 0 0 0 0 0 0 0)
++	 ("met1" 0 0 0 0 0 0 0)
++	 ("met2" 0 0 0 0 0 0 0)
++	 ("met3" 0 0 0 0 0 0 0)
++	 ("met4" 0 0 0 0 0 0 0)
++	 ("met5" 0 0 0 0 0 0 0)
++	 ("mcon" 0 0.64 0 0 0 0 0)
++	 ("via" 0 0.64 0 0 0 0 0)
++	 ("via2" 0 0.64 0 0 0 0 0)
++	 ("via3" 0 0.64 0 0 0 0 0)
++	 ("via4" 0 0.64 0 0 0 0 0)
++))
++defineGateSize "sky130_fd_sc_hd__sdfbbn_1" "SCD" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfbbn_1" "SCE" 0.252
++defineGateSize "sky130_fd_sc_hd__sdfbbn_1" "RESET_B" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfbbn_1" "CLK_N" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfbbn_1" "SET_B" 0.252
++defineDiodeProtection "sky130_fd_sc_hd__sdfbbn_1" "Q" '(0.429)
++defineGateSize "sky130_fd_sc_hd__sdfbbn_1" "D" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__sdfbbn_1" "Q_N" '(0.429)
++defineGateSize "sky130_fd_sc_hd__sdfbbn_2" "SCD" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfbbn_2" "SCE" 0.252
++defineGateSize "sky130_fd_sc_hd__sdfbbn_2" "RESET_B" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfbbn_2" "CLK_N" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfbbn_2" "SET_B" 0.252
++defineDiodeProtection "sky130_fd_sc_hd__sdfbbn_2" "Q" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__sdfbbn_2" "D" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__sdfbbn_2" "Q_N" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__sdfbbp_1" "SCD" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfbbp_1" "SCE" 0.252
++defineGateSize "sky130_fd_sc_hd__sdfbbp_1" "RESET_B" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfbbp_1" "CLK" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfbbp_1" "SET_B" 0.252
++defineDiodeProtection "sky130_fd_sc_hd__sdfbbp_1" "Q" '(0.429)
++defineGateSize "sky130_fd_sc_hd__sdfbbp_1" "D" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__sdfbbp_1" "Q_N" '(0.429)
++defineDiodeProtection "sky130_fd_sc_hd__sdfrbp_1" "Q_N" '(0.3406)
++defineGateSize "sky130_fd_sc_hd__sdfrbp_1" "SCE" 0.435
++defineGateSize "sky130_fd_sc_hd__sdfrbp_1" "SCD" 0.1566
++defineGateSize "sky130_fd_sc_hd__sdfrbp_1" "D" 0.144
++defineGateSize "sky130_fd_sc_hd__sdfrbp_1" "CLK" 0.2475
++defineGateSize "sky130_fd_sc_hd__sdfrbp_1" "RESET_B" 0.252
++defineDiodeProtection "sky130_fd_sc_hd__sdfrbp_1" "Q" '(0.429)
++defineDiodeProtection "sky130_fd_sc_hd__sdfrbp_2" "Q_N" '(0.4455)
++defineDiodeProtection "sky130_fd_sc_hd__sdfrbp_2" "Q" '(0.5115)
++defineGateSize "sky130_fd_sc_hd__sdfrbp_2" "SCE" 0.435
++defineGateSize "sky130_fd_sc_hd__sdfrbp_2" "SCD" 0.1566
++defineGateSize "sky130_fd_sc_hd__sdfrbp_2" "D" 0.144
++defineGateSize "sky130_fd_sc_hd__sdfrbp_2" "CLK" 0.2475
++defineGateSize "sky130_fd_sc_hd__sdfrbp_2" "RESET_B" 0.252
++defineGateSize "sky130_fd_sc_hd__sdfrtn_1" "SCE" 0.435
++defineGateSize "sky130_fd_sc_hd__sdfrtn_1" "SCD" 0.1566
++defineGateSize "sky130_fd_sc_hd__sdfrtn_1" "D" 0.144
++defineGateSize "sky130_fd_sc_hd__sdfrtn_1" "CLK_N" 0.2475
++defineGateSize "sky130_fd_sc_hd__sdfrtn_1" "RESET_B" 0.252
++defineDiodeProtection "sky130_fd_sc_hd__sdfrtn_1" "Q" '(0.429)
++defineGateSize "sky130_fd_sc_hd__sdfrtp_1" "SCE" 0.435
++defineGateSize "sky130_fd_sc_hd__sdfrtp_1" "SCD" 0.1566
++defineGateSize "sky130_fd_sc_hd__sdfrtp_1" "D" 0.144
++defineGateSize "sky130_fd_sc_hd__sdfrtp_1" "CLK" 0.2475
++defineGateSize "sky130_fd_sc_hd__sdfrtp_1" "RESET_B" 0.252
++defineDiodeProtection "sky130_fd_sc_hd__sdfrtp_1" "Q" '(0.429)
++defineGateSize "sky130_fd_sc_hd__sdfrtp_2" "SCE" 0.435
++defineGateSize "sky130_fd_sc_hd__sdfrtp_2" "SCD" 0.1566
++defineGateSize "sky130_fd_sc_hd__sdfrtp_2" "D" 0.144
++defineGateSize "sky130_fd_sc_hd__sdfrtp_2" "CLK" 0.2475
++defineGateSize "sky130_fd_sc_hd__sdfrtp_2" "RESET_B" 0.252
++defineDiodeProtection "sky130_fd_sc_hd__sdfrtp_2" "Q" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__sdfrtp_4" "SCE" 0.435
++defineGateSize "sky130_fd_sc_hd__sdfrtp_4" "SCD" 0.1566
++defineGateSize "sky130_fd_sc_hd__sdfrtp_4" "D" 0.144
++defineGateSize "sky130_fd_sc_hd__sdfrtp_4" "CLK" 0.2475
++defineGateSize "sky130_fd_sc_hd__sdfrtp_4" "RESET_B" 0.252
++defineDiodeProtection "sky130_fd_sc_hd__sdfrtp_4" "Q" '(0.891)
++defineGateSize "sky130_fd_sc_hd__sdfsbp_1" "SCD" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__sdfsbp_1" "Q_N" '(0.429)
++defineGateSize "sky130_fd_sc_hd__sdfsbp_1" "SET_B" 0.252
++defineGateSize "sky130_fd_sc_hd__sdfsbp_1" "SCE" 0.318
++defineGateSize "sky130_fd_sc_hd__sdfsbp_1" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfsbp_1" "CLK" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__sdfsbp_1" "Q" '(0.429)
++defineGateSize "sky130_fd_sc_hd__sdfsbp_2" "SCD" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__sdfsbp_2" "Q_N" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__sdfsbp_2" "SET_B" 0.252
++defineGateSize "sky130_fd_sc_hd__sdfsbp_2" "SCE" 0.318
++defineGateSize "sky130_fd_sc_hd__sdfsbp_2" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfsbp_2" "CLK" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__sdfsbp_2" "Q" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__sdfstp_1" "SCD" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfstp_1" "SET_B" 0.252
++defineGateSize "sky130_fd_sc_hd__sdfstp_1" "SCE" 0.318
++defineGateSize "sky130_fd_sc_hd__sdfstp_1" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfstp_1" "CLK" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__sdfstp_1" "Q" '(0.429)
++defineGateSize "sky130_fd_sc_hd__sdfstp_2" "SCD" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfstp_2" "SET_B" 0.252
++defineGateSize "sky130_fd_sc_hd__sdfstp_2" "SCE" 0.318
++defineGateSize "sky130_fd_sc_hd__sdfstp_2" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfstp_2" "CLK" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__sdfstp_2" "Q" '(0.51975)
++defineGateSize "sky130_fd_sc_hd__sdfstp_4" "SCE" 0.318
++defineGateSize "sky130_fd_sc_hd__sdfstp_4" "SET_B" 0.252
++defineGateSize "sky130_fd_sc_hd__sdfstp_4" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfstp_4" "CLK" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfstp_4" "SCD" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__sdfstp_4" "Q" '(0.891)
++defineGateSize "sky130_fd_sc_hd__sdfxbp_1" "SCD" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__sdfxbp_1" "Q_N" '(0.429)
++defineGateSize "sky130_fd_sc_hd__sdfxbp_1" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfxbp_1" "SCE" 0.318
++defineGateSize "sky130_fd_sc_hd__sdfxbp_1" "CLK" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__sdfxbp_1" "Q" '(0.429)
++defineGateSize "sky130_fd_sc_hd__sdfxbp_2" "SCD" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfxbp_2" "D" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__sdfxbp_2" "Q_N" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__sdfxbp_2" "SCE" 0.318
++defineGateSize "sky130_fd_sc_hd__sdfxbp_2" "CLK" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__sdfxbp_2" "Q" '(0.4455)
++defineDiodeProtection "sky130_fd_sc_hd__sdfxtp_1" "Q" '(0.429)
++defineGateSize "sky130_fd_sc_hd__sdfxtp_1" "CLK" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfxtp_1" "SCE" 0.318
++defineGateSize "sky130_fd_sc_hd__sdfxtp_1" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfxtp_1" "SCD" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfxtp_2" "SCD" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfxtp_2" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfxtp_2" "SCE" 0.318
++defineGateSize "sky130_fd_sc_hd__sdfxtp_2" "CLK" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__sdfxtp_2" "Q" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__sdfxtp_4" "SCD" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfxtp_4" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__sdfxtp_4" "SCE" 0.318
++defineGateSize "sky130_fd_sc_hd__sdfxtp_4" "CLK" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__sdfxtp_4" "Q" '(0.891)
++defineDiodeProtection "sky130_fd_sc_hd__o32ai_1" "Y" '(0.82125)
++defineGateSize "sky130_fd_sc_hd__o32ai_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o32ai_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o32ai_1" "A3" 0.2475
++defineGateSize "sky130_fd_sc_hd__o32ai_1" "B2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o32ai_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o32ai_2" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__o32ai_2" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__o32ai_2" "A3" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__o32ai_2" "Y" '(0.891)
++defineGateSize "sky130_fd_sc_hd__o32ai_2" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__o32ai_2" "B2" 0.495
++defineGateSize "sky130_fd_sc_hd__o32ai_4" "A1" 0.99
++defineGateSize "sky130_fd_sc_hd__o32ai_4" "A2" 0.99
++defineGateSize "sky130_fd_sc_hd__o32ai_4" "A3" 0.99
++defineGateSize "sky130_fd_sc_hd__o32ai_4" "B1" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__o32ai_4" "Y" '(1.782)
++defineGateSize "sky130_fd_sc_hd__o32ai_4" "B2" 0.99
++defineGateSize "sky130_fd_sc_hd__o41a_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o41a_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o41a_1" "A3" 0.2475
++defineGateSize "sky130_fd_sc_hd__o41a_1" "A4" 0.2475
++defineGateSize "sky130_fd_sc_hd__o41a_1" "B1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o41a_1" "X" '(0.672)
++defineGateSize "sky130_fd_sc_hd__o41a_2" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o41a_2" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o41a_2" "A3" 0.2475
++defineGateSize "sky130_fd_sc_hd__o41a_2" "A4" 0.2475
++defineGateSize "sky130_fd_sc_hd__o41a_2" "B1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o41a_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__o41a_4" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__o41a_4" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__o41a_4" "A3" 0.495
++defineGateSize "sky130_fd_sc_hd__o41a_4" "A4" 0.495
++defineGateSize "sky130_fd_sc_hd__o41a_4" "B1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__o41a_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__o41ai_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o41ai_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o41ai_1" "A3" 0.2475
++defineGateSize "sky130_fd_sc_hd__o41ai_1" "A4" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o41ai_1" "Y" '(0.439)
++defineGateSize "sky130_fd_sc_hd__o41ai_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o41ai_2" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__o41ai_2" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__o41ai_2" "A4" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__o41ai_2" "Y" '(0.7155)
++defineGateSize "sky130_fd_sc_hd__o41ai_2" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__o41ai_2" "A3" 0.495
++defineGateSize "sky130_fd_sc_hd__o41ai_4" "A1" 0.99
++defineGateSize "sky130_fd_sc_hd__o41ai_4" "A2" 0.99
++defineGateSize "sky130_fd_sc_hd__o41ai_4" "A3" 0.99
++defineGateSize "sky130_fd_sc_hd__o41ai_4" "A4" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__o41ai_4" "Y" '(1.431)
++defineGateSize "sky130_fd_sc_hd__o41ai_4" "B1" 0.99
++defineGateSize "sky130_fd_sc_hd__or2_0" "A" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__or2_0" "X" '(0.3268)
++defineGateSize "sky130_fd_sc_hd__or2_0" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__or2_1" "A" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__or2_1" "X" '(0.509)
++defineGateSize "sky130_fd_sc_hd__or2_1" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__or2_2" "B" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__or2_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__or2_2" "A" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__or2_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__or2_4" "A" 0.2475
++defineGateSize "sky130_fd_sc_hd__or2_4" "B" 0.2475
++defineGateSize "sky130_fd_sc_hd__or2b_1" "A" 0.126
++defineGateSize "sky130_fd_sc_hd__or2b_1" "B_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__or2b_1" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__or2b_2" "A" 0.126
++defineGateSize "sky130_fd_sc_hd__or2b_2" "B_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__or2b_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__or2b_4" "A" 0.2475
++defineGateSize "sky130_fd_sc_hd__or2b_4" "B_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__or2b_4" "X" '(0.891)
++defineDiodeProtection "sky130_fd_sc_hd__or3_1" "X" '(0.462)
++defineGateSize "sky130_fd_sc_hd__or3_1" "A" 0.126
++defineGateSize "sky130_fd_sc_hd__or3_1" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__or3_1" "C" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__or3_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__or3_2" "A" 0.126
++defineGateSize "sky130_fd_sc_hd__or3_2" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__or3_2" "C" 0.126
++defineGateSize "sky130_fd_sc_hd__or3_4" "A" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__or3_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__or3_4" "C" 0.2475
++defineGateSize "sky130_fd_sc_hd__or3_4" "B" 0.2475
++defineGateSize "sky130_fd_sc_hd__or3b_1" "C_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__or3b_1" "X" '(0.45375)
++defineGateSize "sky130_fd_sc_hd__or3b_1" "A" 0.126
++defineGateSize "sky130_fd_sc_hd__or3b_1" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__or3b_2" "A" 0.126
++defineGateSize "sky130_fd_sc_hd__or3b_2" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__or3b_2" "C_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__or3b_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__or3b_4" "A" 0.2475
++defineGateSize "sky130_fd_sc_hd__or3b_4" "B" 0.2475
++defineGateSize "sky130_fd_sc_hd__or3b_4" "C_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__or3b_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__or4_1" "A" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__or4_1" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__or4_1" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__or4_1" "C" 0.126
++defineGateSize "sky130_fd_sc_hd__or4_1" "D" 0.126
++defineGateSize "sky130_fd_sc_hd__or4_2" "A" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__or4_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__or4_2" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__or4_2" "C" 0.126
++defineGateSize "sky130_fd_sc_hd__or4_2" "D" 0.126
++defineGateSize "sky130_fd_sc_hd__or4_4" "B" 0.2475
++defineGateSize "sky130_fd_sc_hd__or4_4" "A" 0.2475
++defineGateSize "sky130_fd_sc_hd__or4_4" "C" 0.2475
++defineGateSize "sky130_fd_sc_hd__or4_4" "D" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__or4_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__or4b_1" "A" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__or4b_1" "X" '(0.45375)
++defineGateSize "sky130_fd_sc_hd__or4b_1" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__or4b_1" "D_N" 0.126
++defineGateSize "sky130_fd_sc_hd__or4b_1" "C" 0.126
++defineGateSize "sky130_fd_sc_hd__o22a_4" "B2" 0.495
++defineGateSize "sky130_fd_sc_hd__o22a_4" "B1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__o22a_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__o22a_4" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__o22a_4" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__o22ai_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o22ai_1" "B1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o22ai_1" "Y" '(0.65025)
++defineGateSize "sky130_fd_sc_hd__o22ai_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o22ai_1" "B2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o22ai_2" "B2" 0.495
++defineGateSize "sky130_fd_sc_hd__o22ai_2" "B1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__o22ai_2" "Y" '(0.891)
++defineGateSize "sky130_fd_sc_hd__o22ai_2" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__o22ai_2" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__o22ai_4" "A1" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__o22ai_4" "Y" '(1.782)
++defineGateSize "sky130_fd_sc_hd__o22ai_4" "A2" 0.99
++defineGateSize "sky130_fd_sc_hd__o22ai_4" "B1" 0.99
++defineGateSize "sky130_fd_sc_hd__o22ai_4" "B2" 0.99
++defineGateSize "sky130_fd_sc_hd__o2bb2a_1" "A1_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__o2bb2a_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__o2bb2a_1" "A2_N" 0.126
++defineGateSize "sky130_fd_sc_hd__o2bb2a_1" "B2" 0.126
++defineGateSize "sky130_fd_sc_hd__o2bb2a_1" "B1" 0.126
++defineGateSize "sky130_fd_sc_hd__o2bb2a_2" "A1_N" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__o2bb2a_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__o2bb2a_2" "A2_N" 0.159
++defineGateSize "sky130_fd_sc_hd__o2bb2a_2" "B2" 0.159
++defineGateSize "sky130_fd_sc_hd__o2bb2a_2" "B1" 0.159
++defineGateSize "sky130_fd_sc_hd__o2bb2a_4" "A2_N" 0.495
++defineGateSize "sky130_fd_sc_hd__o2bb2a_4" "A1_N" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__o2bb2a_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__o2bb2a_4" "B2" 0.495
++defineGateSize "sky130_fd_sc_hd__o2bb2a_4" "B1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__o2bb2ai_1" "Y" '(0.439)
++defineGateSize "sky130_fd_sc_hd__o2bb2ai_1" "A1_N" 0.2475
++defineGateSize "sky130_fd_sc_hd__o2bb2ai_1" "A2_N" 0.2475
++defineGateSize "sky130_fd_sc_hd__o2bb2ai_1" "B2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o2bb2ai_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o2bb2ai_2" "B2" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__o2bb2ai_2" "Y" '(0.7155)
++defineGateSize "sky130_fd_sc_hd__o2bb2ai_2" "A1_N" 0.495
++defineGateSize "sky130_fd_sc_hd__o2bb2ai_2" "A2_N" 0.495
++defineGateSize "sky130_fd_sc_hd__o2bb2ai_2" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__o2bb2ai_4" "A1_N" 0.99
++defineGateSize "sky130_fd_sc_hd__o2bb2ai_4" "B1" 0.99
++defineGateSize "sky130_fd_sc_hd__o2bb2ai_4" "B2" 0.99
++defineGateSize "sky130_fd_sc_hd__o2bb2ai_4" "A2_N" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__o2bb2ai_4" "Y" '(1.431)
++defineGateSize "sky130_fd_sc_hd__o311a_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o311a_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o311a_1" "C1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o311a_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__o311a_1" "A3" 0.2475
++defineGateSize "sky130_fd_sc_hd__o311a_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o311a_2" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o311a_2" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o311a_2" "A3" 0.2475
++defineGateSize "sky130_fd_sc_hd__o311a_2" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o311a_2" "C1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o311a_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__o311a_4" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__o311a_4" "A3" 0.495
++defineGateSize "sky130_fd_sc_hd__o311a_4" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__o311a_4" "C1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__o311a_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__o311a_4" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__o311ai_0" "A2" 0.159
++defineGateSize "sky130_fd_sc_hd__o311ai_0" "A3" 0.159
++defineGateSize "sky130_fd_sc_hd__o311ai_0" "B1" 0.159
++defineGateSize "sky130_fd_sc_hd__o311ai_0" "C1" 0.159
++defineGateSize "sky130_fd_sc_hd__o311ai_0" "A1" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__o311ai_0" "Y" '(0.604)
++defineGateSize "sky130_fd_sc_hd__o311ai_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o311ai_1" "A3" 0.2475
++defineGateSize "sky130_fd_sc_hd__o311ai_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o311ai_1" "C1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o311ai_1" "A1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o311ai_1" "Y" '(0.942)
++defineGateSize "sky130_fd_sc_hd__o311ai_2" "C1" 0.495
++defineGateSize "sky130_fd_sc_hd__o311ai_2" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__o311ai_2" "A3" 0.495
++defineGateSize "sky130_fd_sc_hd__o311ai_2" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__o311ai_2" "A1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__o311ai_2" "Y" '(1.551)
++defineDiodeProtection "sky130_fd_sc_hd__o311ai_4" "Y" '(2.241)
++defineGateSize "sky130_fd_sc_hd__o311ai_4" "C1" 0.99
++defineGateSize "sky130_fd_sc_hd__o311ai_4" "B1" 0.99
++defineGateSize "sky130_fd_sc_hd__o311ai_4" "A3" 0.99
++defineGateSize "sky130_fd_sc_hd__o311ai_4" "A2" 0.99
++defineGateSize "sky130_fd_sc_hd__o311ai_4" "A1" 0.99
++defineGateSize "sky130_fd_sc_hd__o31a_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o31a_1" "A2" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o31a_1" "X" '(0.594)
++defineGateSize "sky130_fd_sc_hd__o31a_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o31a_1" "A3" 0.2475
++defineGateSize "sky130_fd_sc_hd__o31a_2" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o31a_2" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o31a_2" "A2" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o31a_2" "X" '(0.5775)
++defineGateSize "sky130_fd_sc_hd__o31a_2" "A3" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o31a_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__o31a_4" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__o31a_4" "A3" 0.495
++defineGateSize "sky130_fd_sc_hd__o31a_4" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__o31a_4" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__o31ai_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o31ai_1" "A3" 0.2475
++defineGateSize "sky130_fd_sc_hd__o31ai_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o31ai_1" "A2" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o31ai_1" "Y" '(1.006)
++defineDiodeProtection "sky130_fd_sc_hd__o31ai_2" "Y" '(1.0635)
++defineGateSize "sky130_fd_sc_hd__o31ai_2" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__o31ai_2" "A3" 0.495
++defineGateSize "sky130_fd_sc_hd__o31ai_2" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__o31ai_2" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__o31ai_4" "A2" 0.99
++defineGateSize "sky130_fd_sc_hd__o31ai_4" "A1" 0.99
++defineGateSize "sky130_fd_sc_hd__o31ai_4" "B1" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__o31ai_4" "Y" '(1.6838)
++defineGateSize "sky130_fd_sc_hd__o31ai_4" "A3" 0.99
++defineGateSize "sky130_fd_sc_hd__o32a_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o32a_1" "A3" 0.2475
++defineGateSize "sky130_fd_sc_hd__o32a_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o32a_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o32a_1" "B2" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o32a_1" "X" '(0.504)
++defineGateSize "sky130_fd_sc_hd__o32a_2" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o32a_2" "B2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o32a_2" "A3" 0.2475
++defineGateSize "sky130_fd_sc_hd__o32a_2" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o32a_2" "A1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o32a_2" "X" '(0.4455)
++defineDiodeProtection "sky130_fd_sc_hd__o32a_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__o32a_4" "B2" 0.495
++defineGateSize "sky130_fd_sc_hd__o32a_4" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__o32a_4" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__o32a_4" "A3" 0.495
++defineGateSize "sky130_fd_sc_hd__o32a_4" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__o211a_2" "C1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o211a_2" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o211a_2" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o211a_2" "A1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o211a_2" "X" '(0.462)
++defineGateSize "sky130_fd_sc_hd__o211a_4" "A1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__o211a_4" "X" '(0.911)
++defineGateSize "sky130_fd_sc_hd__o211a_4" "C1" 0.495
++defineGateSize "sky130_fd_sc_hd__o211a_4" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__o211a_4" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__o211ai_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o211ai_1" "A2" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o211ai_1" "Y" '(1.41825)
++defineGateSize "sky130_fd_sc_hd__o211ai_1" "C1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o211ai_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o211ai_2" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__o211ai_2" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__o211ai_2" "B1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__o211ai_2" "Y" '(1.022)
++defineGateSize "sky130_fd_sc_hd__o211ai_2" "C1" 0.495
++defineGateSize "sky130_fd_sc_hd__o211ai_4" "A1" 0.99
++defineGateSize "sky130_fd_sc_hd__o211ai_4" "B1" 0.99
++defineGateSize "sky130_fd_sc_hd__o211ai_4" "A2" 0.99
++defineGateSize "sky130_fd_sc_hd__o211ai_4" "C1" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__o211ai_4" "Y" '(2.001)
++defineDiodeProtection "sky130_fd_sc_hd__o21a_1" "X" '(0.449)
++defineGateSize "sky130_fd_sc_hd__o21a_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o21a_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o21a_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o21a_2" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o21a_2" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o21a_2" "A2" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o21a_2" "X" '(0.45375)
++defineGateSize "sky130_fd_sc_hd__o21a_4" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__o21a_4" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__o21a_4" "B1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__o21a_4" "X" '(0.924)
++defineDiodeProtection "sky130_fd_sc_hd__o21ai_0" "Y" '(0.2905)
++defineGateSize "sky130_fd_sc_hd__o21ai_0" "B1" 0.159
++defineGateSize "sky130_fd_sc_hd__o21ai_0" "A2" 0.159
++defineGateSize "sky130_fd_sc_hd__o21ai_0" "A1" 0.159
++defineGateSize "sky130_fd_sc_hd__o21ai_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o21ai_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o21ai_1" "B1" 0.2025
++defineDiodeProtection "sky130_fd_sc_hd__o21ai_1" "Y" '(0.517)
++defineGateSize "sky130_fd_sc_hd__o21ai_2" "A2" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__o21ai_2" "Y" '(0.742)
++defineGateSize "sky130_fd_sc_hd__o21ai_2" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__o21ai_2" "B1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__o21ai_4" "Y" '(1.484)
++defineGateSize "sky130_fd_sc_hd__o21ai_4" "B1" 0.99
++defineGateSize "sky130_fd_sc_hd__o21ai_4" "A2" 0.99
++defineGateSize "sky130_fd_sc_hd__o21ai_4" "A1" 0.99
++defineGateSize "sky130_fd_sc_hd__o21ba_1" "B1_N" 0.126
++defineGateSize "sky130_fd_sc_hd__o21ba_1" "A1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o21ba_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__o21ba_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o21ba_2" "B1_N" 0.126
++defineGateSize "sky130_fd_sc_hd__o21ba_2" "A1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o21ba_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__o21ba_2" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o21ba_4" "B1_N" 0.2475
++defineGateSize "sky130_fd_sc_hd__o21ba_4" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__o21ba_4" "A2" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__o21ba_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__o21bai_1" "A1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o21bai_1" "Y" '(0.474)
++defineGateSize "sky130_fd_sc_hd__o21bai_1" "B1_N" 0.126
++defineGateSize "sky130_fd_sc_hd__o21bai_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o21bai_2" "B1_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__o21bai_2" "Y" '(0.7155)
++defineGateSize "sky130_fd_sc_hd__o21bai_2" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__o21bai_2" "A1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__o21bai_4" "Y" '(1.431)
++defineGateSize "sky130_fd_sc_hd__o21bai_4" "B1_N" 0.2475
++defineGateSize "sky130_fd_sc_hd__o21bai_4" "A1" 0.99
++defineGateSize "sky130_fd_sc_hd__o21bai_4" "A2" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__o221a_1" "X" '(0.462)
++defineGateSize "sky130_fd_sc_hd__o221a_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o221a_1" "C1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o221a_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o221a_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o221a_1" "B2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o221a_2" "A2" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o221a_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__o221a_2" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o221a_2" "C1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o221a_2" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o221a_2" "B2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o221a_4" "C1" 0.495
++defineGateSize "sky130_fd_sc_hd__o221a_4" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__o221a_4" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__o221a_4" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__o221a_4" "B2" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__o221a_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__o221ai_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o221ai_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o221ai_1" "C1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o221ai_1" "A1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o221ai_1" "Y" '(0.899)
++defineGateSize "sky130_fd_sc_hd__o221ai_1" "B2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o221ai_2" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__o221ai_2" "B2" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__o221ai_2" "Y" '(0.9855)
++defineGateSize "sky130_fd_sc_hd__o221ai_2" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__o221ai_2" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__o221ai_2" "C1" 0.495
++defineGateSize "sky130_fd_sc_hd__o221ai_4" "B1" 0.99
++defineGateSize "sky130_fd_sc_hd__o221ai_4" "B2" 0.99
++defineGateSize "sky130_fd_sc_hd__o221ai_4" "A2" 0.99
++defineGateSize "sky130_fd_sc_hd__o221ai_4" "C1" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__o221ai_4" "Y" '(1.971)
++defineGateSize "sky130_fd_sc_hd__o221ai_4" "A1" 0.99
++defineGateSize "sky130_fd_sc_hd__o22a_1" "A2" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o22a_1" "X" '(0.449)
++defineGateSize "sky130_fd_sc_hd__o22a_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o22a_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o22a_1" "B2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o22a_2" "A2" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o22a_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__o22a_2" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o22a_2" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o22a_2" "B2" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__nor2_8" "Y" '(2.484)
++defineGateSize "sky130_fd_sc_hd__nor2_8" "A" 1.98
++defineGateSize "sky130_fd_sc_hd__nor2_8" "B" 1.98
++defineGateSize "sky130_fd_sc_hd__nor2b_1" "B_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__nor2b_1" "Y" '(0.4355)
++defineGateSize "sky130_fd_sc_hd__nor2b_1" "A" 0.2475
++defineGateSize "sky130_fd_sc_hd__nor2b_2" "B_N" 0.126
++defineGateSize "sky130_fd_sc_hd__nor2b_2" "A" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__nor2b_2" "Y" '(0.621)
++defineGateSize "sky130_fd_sc_hd__nor2b_4" "B_N" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__nor2b_4" "Y" '(1.242)
++defineGateSize "sky130_fd_sc_hd__nor2b_4" "A" 0.99
++defineGateSize "sky130_fd_sc_hd__nor3_1" "C" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__nor3_1" "Y" '(0.6045)
++defineGateSize "sky130_fd_sc_hd__nor3_1" "A" 0.2475
++defineGateSize "sky130_fd_sc_hd__nor3_1" "B" 0.2475
++defineGateSize "sky130_fd_sc_hd__nor3_2" "C" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__nor3_2" "Y" '(0.7965)
++defineGateSize "sky130_fd_sc_hd__nor3_2" "A" 0.495
++defineGateSize "sky130_fd_sc_hd__nor3_2" "B" 0.495
++defineGateSize "sky130_fd_sc_hd__nor3_4" "A" 0.99
++defineGateSize "sky130_fd_sc_hd__nor3_4" "C" 0.99
++defineGateSize "sky130_fd_sc_hd__nor3_4" "B" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__nor3_4" "Y" '(1.593)
++defineGateSize "sky130_fd_sc_hd__nor3b_1" "C_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__nor3b_1" "Y" '(0.7165)
++defineGateSize "sky130_fd_sc_hd__nor3b_1" "A" 0.2475
++defineGateSize "sky130_fd_sc_hd__nor3b_1" "B" 0.2475
++defineGateSize "sky130_fd_sc_hd__nor3b_2" "C_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__nor3b_2" "Y" '(0.7965)
++defineGateSize "sky130_fd_sc_hd__nor3b_2" "A" 0.495
++defineGateSize "sky130_fd_sc_hd__nor3b_2" "B" 0.495
++defineGateSize "sky130_fd_sc_hd__nor3b_4" "A" 0.99
++defineGateSize "sky130_fd_sc_hd__nor3b_4" "C_N" 0.2475
++defineGateSize "sky130_fd_sc_hd__nor3b_4" "B" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__nor3b_4" "Y" '(1.593)
++defineGateSize "sky130_fd_sc_hd__nor4_1" "C" 0.2475
++defineGateSize "sky130_fd_sc_hd__nor4_1" "D" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__nor4_1" "Y" '(0.67275)
++defineGateSize "sky130_fd_sc_hd__nor4_1" "A" 0.2475
++defineGateSize "sky130_fd_sc_hd__nor4_1" "B" 0.2475
++defineGateSize "sky130_fd_sc_hd__nor4_2" "C" 0.495
++defineGateSize "sky130_fd_sc_hd__nor4_2" "D" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__nor4_2" "Y" '(0.972)
++defineGateSize "sky130_fd_sc_hd__nor4_2" "A" 0.495
++defineGateSize "sky130_fd_sc_hd__nor4_2" "B" 0.495
++defineGateSize "sky130_fd_sc_hd__nor4_4" "A" 0.99
++defineGateSize "sky130_fd_sc_hd__nor4_4" "C" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__nor4_4" "Y" '(1.944)
++defineGateSize "sky130_fd_sc_hd__nor4_4" "D" 0.99
++defineGateSize "sky130_fd_sc_hd__nor4_4" "B" 0.99
++defineGateSize "sky130_fd_sc_hd__nor4b_1" "C" 0.2475
++defineGateSize "sky130_fd_sc_hd__nor4b_1" "B" 0.2475
++defineGateSize "sky130_fd_sc_hd__nor4b_1" "A" 0.2475
++defineGateSize "sky130_fd_sc_hd__nor4b_1" "D_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__nor4b_1" "Y" '(0.871)
++defineGateSize "sky130_fd_sc_hd__nor4b_2" "D_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__nor4b_2" "Y" '(0.972)
++defineGateSize "sky130_fd_sc_hd__nor4b_2" "C" 0.495
++defineGateSize "sky130_fd_sc_hd__nor4b_2" "A" 0.495
++defineGateSize "sky130_fd_sc_hd__nor4b_2" "B" 0.495
++defineGateSize "sky130_fd_sc_hd__nor4b_4" "B" 0.99
++defineGateSize "sky130_fd_sc_hd__nor4b_4" "A" 0.99
++defineGateSize "sky130_fd_sc_hd__nor4b_4" "D_N" 0.2475
++defineGateSize "sky130_fd_sc_hd__nor4b_4" "C" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__nor4b_4" "Y" '(1.944)
++defineGateSize "sky130_fd_sc_hd__nor4bb_1" "A" 0.2475
++defineGateSize "sky130_fd_sc_hd__nor4bb_1" "C_N" 0.126
++defineGateSize "sky130_fd_sc_hd__nor4bb_1" "D_N" 0.126
++defineGateSize "sky130_fd_sc_hd__nor4bb_1" "B" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__nor4bb_1" "Y" '(0.6069)
++defineGateSize "sky130_fd_sc_hd__nor4bb_2" "D_N" 0.126
++defineGateSize "sky130_fd_sc_hd__nor4bb_2" "C_N" 0.126
++defineGateSize "sky130_fd_sc_hd__nor4bb_2" "A" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__nor4bb_2" "Y" '(0.972)
++defineGateSize "sky130_fd_sc_hd__nor4bb_2" "B" 0.495
++defineGateSize "sky130_fd_sc_hd__nor4bb_4" "D_N" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__nor4bb_4" "Y" '(1.944)
++defineGateSize "sky130_fd_sc_hd__nor4bb_4" "A" 0.99
++defineGateSize "sky130_fd_sc_hd__nor4bb_4" "B" 0.99
++defineGateSize "sky130_fd_sc_hd__nor4bb_4" "C_N" 0.2475
++defineGateSize "sky130_fd_sc_hd__o2111a_1" "D1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o2111a_1" "C1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o2111a_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o2111a_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o2111a_1" "A1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o2111a_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__o2111a_2" "D1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o2111a_2" "C1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o2111a_2" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o2111a_2" "B1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o2111a_2" "X" '(0.462)
++defineGateSize "sky130_fd_sc_hd__o2111a_2" "A1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o2111a_4" "X" '(0.9625)
++defineGateSize "sky130_fd_sc_hd__o2111a_4" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__o2111a_4" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__o2111a_4" "C1" 0.495
++defineGateSize "sky130_fd_sc_hd__o2111a_4" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__o2111a_4" "D1" 0.495
++defineGateSize "sky130_fd_sc_hd__o2111ai_1" "D1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o2111ai_1" "C1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o2111ai_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o2111ai_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o2111ai_1" "B1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o2111ai_1" "Y" '(0.85725)
++defineGateSize "sky130_fd_sc_hd__o2111ai_2" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__o2111ai_2" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__o2111ai_2" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__o2111ai_2" "C1" 0.495
++defineGateSize "sky130_fd_sc_hd__o2111ai_2" "D1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__o2111ai_2" "Y" '(1.302)
++defineGateSize "sky130_fd_sc_hd__o2111ai_4" "A1" 0.99
++defineGateSize "sky130_fd_sc_hd__o2111ai_4" "A2" 0.99
++defineGateSize "sky130_fd_sc_hd__o2111ai_4" "B1" 0.99
++defineGateSize "sky130_fd_sc_hd__o2111ai_4" "C1" 0.99
++defineGateSize "sky130_fd_sc_hd__o2111ai_4" "D1" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__o2111ai_4" "Y" '(2.98435)
++defineGateSize "sky130_fd_sc_hd__o211a_1" "C1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o211a_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__o211a_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__o211a_1" "A1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__o211a_1" "X" '(0.429)
++defineDiodeProtection "sky130_fd_sc_hd__mux4_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__mux4_4" "S0" 0.393
++defineGateSize "sky130_fd_sc_hd__mux4_4" "A2" 0.159
++defineGateSize "sky130_fd_sc_hd__mux4_4" "A3" 0.159
++defineGateSize "sky130_fd_sc_hd__mux4_4" "S1" 0.303
++defineGateSize "sky130_fd_sc_hd__mux4_4" "A1" 0.159
++defineGateSize "sky130_fd_sc_hd__mux4_4" "A0" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__nand2_1" "Y" '(0.439)
++defineGateSize "sky130_fd_sc_hd__nand2_1" "B" 0.2475
++defineGateSize "sky130_fd_sc_hd__nand2_1" "A" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__nand2_2" "Y" '(0.7155)
++defineGateSize "sky130_fd_sc_hd__nand2_2" "A" 0.495
++defineGateSize "sky130_fd_sc_hd__nand2_2" "B" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__nand2_4" "Y" '(1.431)
++defineGateSize "sky130_fd_sc_hd__nand2_4" "A" 0.99
++defineGateSize "sky130_fd_sc_hd__nand2_4" "B" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__nand2_8" "Y" '(2.862)
++defineGateSize "sky130_fd_sc_hd__nand2_8" "A" 1.98
++defineGateSize "sky130_fd_sc_hd__nand2_8" "B" 1.98
++defineDiodeProtection "sky130_fd_sc_hd__nand2b_1" "Y" '(0.439)
++defineGateSize "sky130_fd_sc_hd__nand2b_1" "A_N" 0.126
++defineGateSize "sky130_fd_sc_hd__nand2b_1" "B" 0.2475
++defineGateSize "sky130_fd_sc_hd__nand2b_2" "B" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__nand2b_2" "Y" '(0.7755)
++defineGateSize "sky130_fd_sc_hd__nand2b_2" "A_N" 0.126
++defineGateSize "sky130_fd_sc_hd__nand2b_4" "B" 0.99
++defineGateSize "sky130_fd_sc_hd__nand2b_4" "A_N" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__nand2b_4" "Y" '(1.431)
++defineDiodeProtection "sky130_fd_sc_hd__nand3_1" "Y" '(0.699)
++defineGateSize "sky130_fd_sc_hd__nand3_1" "A" 0.2475
++defineGateSize "sky130_fd_sc_hd__nand3_1" "C" 0.2475
++defineGateSize "sky130_fd_sc_hd__nand3_1" "B" 0.2475
++defineGateSize "sky130_fd_sc_hd__nand3_2" "A" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__nand3_2" "Y" '(0.9855)
++defineGateSize "sky130_fd_sc_hd__nand3_2" "B" 0.495
++defineGateSize "sky130_fd_sc_hd__nand3_2" "C" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__nand3_4" "Y" '(1.971)
++defineGateSize "sky130_fd_sc_hd__nand3_4" "B" 0.99
++defineGateSize "sky130_fd_sc_hd__nand3_4" "A" 0.99
++defineGateSize "sky130_fd_sc_hd__nand3_4" "C" 0.99
++defineGateSize "sky130_fd_sc_hd__nand3b_1" "B" 0.2475
++defineGateSize "sky130_fd_sc_hd__nand3b_1" "C" 0.2475
++defineGateSize "sky130_fd_sc_hd__nand3b_1" "A_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__nand3b_1" "Y" '(0.732)
++defineGateSize "sky130_fd_sc_hd__nand3b_2" "C" 0.495
++defineGateSize "sky130_fd_sc_hd__nand3b_2" "A_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__nand3b_2" "Y" '(0.9855)
++defineGateSize "sky130_fd_sc_hd__nand3b_2" "B" 0.495
++defineGateSize "sky130_fd_sc_hd__nand3b_4" "A_N" 0.2475
++defineGateSize "sky130_fd_sc_hd__nand3b_4" "B" 0.99
++defineGateSize "sky130_fd_sc_hd__nand3b_4" "C" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__nand3b_4" "Y" '(1.971)
++defineGateSize "sky130_fd_sc_hd__nand4_1" "C" 0.2475
++defineGateSize "sky130_fd_sc_hd__nand4_1" "B" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__nand4_1" "Y" '(0.795)
++defineGateSize "sky130_fd_sc_hd__nand4_1" "D" 0.2475
++defineGateSize "sky130_fd_sc_hd__nand4_1" "A" 0.2475
++defineGateSize "sky130_fd_sc_hd__nand4_2" "B" 0.495
++defineGateSize "sky130_fd_sc_hd__nand4_2" "A" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__nand4_2" "Y" '(1.2555)
++defineGateSize "sky130_fd_sc_hd__nand4_2" "D" 0.495
++defineGateSize "sky130_fd_sc_hd__nand4_2" "C" 0.495
++defineGateSize "sky130_fd_sc_hd__nand4_4" "A" 0.99
++defineGateSize "sky130_fd_sc_hd__nand4_4" "D" 0.99
++defineGateSize "sky130_fd_sc_hd__nand4_4" "C" 0.99
++defineGateSize "sky130_fd_sc_hd__nand4_4" "B" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__nand4_4" "Y" '(2.511)
++defineDiodeProtection "sky130_fd_sc_hd__nand4b_1" "Y" '(0.8875)
++defineGateSize "sky130_fd_sc_hd__nand4b_1" "C" 0.2475
++defineGateSize "sky130_fd_sc_hd__nand4b_1" "D" 0.2475
++defineGateSize "sky130_fd_sc_hd__nand4b_1" "A_N" 0.126
++defineGateSize "sky130_fd_sc_hd__nand4b_1" "B" 0.2475
++defineGateSize "sky130_fd_sc_hd__nand4b_2" "D" 0.495
++defineGateSize "sky130_fd_sc_hd__nand4b_2" "C" 0.495
++defineGateSize "sky130_fd_sc_hd__nand4b_2" "B" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__nand4b_2" "Y" '(1.2555)
++defineGateSize "sky130_fd_sc_hd__nand4b_2" "A_N" 0.126
++defineGateSize "sky130_fd_sc_hd__nand4b_4" "B" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__nand4b_4" "Y" '(2.511)
++defineGateSize "sky130_fd_sc_hd__nand4b_4" "A_N" 0.2475
++defineGateSize "sky130_fd_sc_hd__nand4b_4" "D" 0.99
++defineGateSize "sky130_fd_sc_hd__nand4b_4" "C" 0.99
++defineGateSize "sky130_fd_sc_hd__nand4bb_1" "C" 0.2475
++defineGateSize "sky130_fd_sc_hd__nand4bb_1" "D" 0.2475
++defineGateSize "sky130_fd_sc_hd__nand4bb_1" "A_N" 0.126
++defineGateSize "sky130_fd_sc_hd__nand4bb_1" "B_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__nand4bb_1" "Y" '(0.909)
++defineGateSize "sky130_fd_sc_hd__nand4bb_2" "D" 0.495
++defineGateSize "sky130_fd_sc_hd__nand4bb_2" "B_N" 0.126
++defineGateSize "sky130_fd_sc_hd__nand4bb_2" "A_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__nand4bb_2" "Y" '(1.2555)
++defineGateSize "sky130_fd_sc_hd__nand4bb_2" "C" 0.495
++defineGateSize "sky130_fd_sc_hd__nand4bb_4" "B_N" 0.2475
++defineGateSize "sky130_fd_sc_hd__nand4bb_4" "A_N" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__nand4bb_4" "Y" '(2.511)
++defineGateSize "sky130_fd_sc_hd__nand4bb_4" "C" 0.99
++defineGateSize "sky130_fd_sc_hd__nand4bb_4" "D" 0.99
++defineGateSize "sky130_fd_sc_hd__nor2_1" "B" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__nor2_1" "Y" '(0.4355)
++defineGateSize "sky130_fd_sc_hd__nor2_1" "A" 0.2475
++defineGateSize "sky130_fd_sc_hd__nor2_2" "B" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__nor2_2" "Y" '(0.621)
++defineGateSize "sky130_fd_sc_hd__nor2_2" "A" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__nor2_4" "Y" '(1.242)
++defineGateSize "sky130_fd_sc_hd__nor2_4" "A" 0.99
++defineGateSize "sky130_fd_sc_hd__nor2_4" "B" 0.99
++defineGateSize "sky130_fd_sc_hd__lpflow_isobufsrc_8" "A" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_isobufsrc_8" "X" '(2.484)
++defineGateSize "sky130_fd_sc_hd__lpflow_isobufsrc_8" "SLEEP" 1.98
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_isobufsrckapwr_16" "X" '(3.1808)
++defineGateSize "sky130_fd_sc_hd__lpflow_isobufsrckapwr_16" "A" 0.2475
++defineGateSize "sky130_fd_sc_hd__lpflow_isobufsrckapwr_16" "SLEEP" 0.99
++defineGateSize "sky130_fd_sc_hd__lpflow_lsbuf_lh_hl_isowell_tap_1" "A" 0.603
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_lsbuf_lh_hl_isowell_tap_1" "X" '(0.4025)
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_lsbuf_lh_hl_isowell_tap_1" "VPB" '(0.2975)
++defineGateSize "sky130_fd_sc_hd__lpflow_lsbuf_lh_hl_isowell_tap_2" "A" 0.603
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_lsbuf_lh_hl_isowell_tap_2" "X" '(0.6105)
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_lsbuf_lh_hl_isowell_tap_2" "VPB" '(0.2975)
++defineGateSize "sky130_fd_sc_hd__lpflow_lsbuf_lh_hl_isowell_tap_4" "A" 0.603
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_lsbuf_lh_hl_isowell_tap_4" "X" '(1.0725)
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_lsbuf_lh_hl_isowell_tap_4" "VPB" '(0.2975)
++defineGateSize "sky130_fd_sc_hd__lpflow_lsbuf_lh_isowell_4" "A" 0.603
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_lsbuf_lh_isowell_4" "X" '(1.0725)
++defineGateSize "sky130_fd_sc_hd__lpflow_lsbuf_lh_isowell_tap_1" "A" 0.603
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_lsbuf_lh_isowell_tap_1" "X" '(0.4025)
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_lsbuf_lh_isowell_tap_1" "VPB" '(0.2975)
++defineGateSize "sky130_fd_sc_hd__lpflow_lsbuf_lh_isowell_tap_2" "A" 0.603
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_lsbuf_lh_isowell_tap_2" "X" '(0.6105)
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_lsbuf_lh_isowell_tap_2" "VPB" '(0.2975)
++defineGateSize "sky130_fd_sc_hd__lpflow_lsbuf_lh_isowell_tap_4" "A" 0.603
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_lsbuf_lh_isowell_tap_4" "X" '(1.0725)
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_lsbuf_lh_isowell_tap_4" "VPB" '(0.2975)
++defineGateSize "sky130_fd_sc_hd__inv_2" "A" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__inv_2" "Y" '(0.4455)
++defineDiodeProtection "sky130_fd_sc_hd__conb_1" "LO" '(0.0001)
++defineDiodeProtection "sky130_fd_sc_hd__conb_1" "HI" '(0.0001)
++defineGateSize "sky130_fd_sc_hd__macro_sparecell" "LO" 1.98
++defineGateSize "sky130_fd_sc_hd__maj3_1" "C" 0.252
++defineGateSize "sky130_fd_sc_hd__maj3_1" "B" 0.252
++defineGateSize "sky130_fd_sc_hd__maj3_1" "A" 0.252
++defineDiodeProtection "sky130_fd_sc_hd__maj3_1" "X" '(0.60225)
++defineGateSize "sky130_fd_sc_hd__maj3_2" "B" 0.318
++defineGateSize "sky130_fd_sc_hd__maj3_2" "A" 0.318
++defineGateSize "sky130_fd_sc_hd__maj3_2" "C" 0.318
++defineDiodeProtection "sky130_fd_sc_hd__maj3_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__maj3_4" "B" 0.495
++defineGateSize "sky130_fd_sc_hd__maj3_4" "C" 0.495
++defineGateSize "sky130_fd_sc_hd__maj3_4" "A" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__maj3_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__mux2_1" "S" 0.252
++defineGateSize "sky130_fd_sc_hd__mux2_1" "A1" 0.126
++defineGateSize "sky130_fd_sc_hd__mux2_1" "A0" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__mux2_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__mux2_2" "A1" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__mux2_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__mux2_2" "A0" 0.159
++defineGateSize "sky130_fd_sc_hd__mux2_2" "S" 0.318
++defineDiodeProtection "sky130_fd_sc_hd__mux2_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__mux2_4" "S" 0.495
++defineGateSize "sky130_fd_sc_hd__mux2_4" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__mux2_4" "A0" 0.2475
++defineGateSize "sky130_fd_sc_hd__mux2_8" "A0" 0.492
++defineDiodeProtection "sky130_fd_sc_hd__mux2_8" "X" '(1.782)
++defineGateSize "sky130_fd_sc_hd__mux2_8" "S" 0.7395
++defineGateSize "sky130_fd_sc_hd__mux2_8" "A1" 0.492
++defineGateSize "sky130_fd_sc_hd__mux2i_1" "S" 0.495
++defineGateSize "sky130_fd_sc_hd__mux2i_1" "A0" 0.2475
++defineGateSize "sky130_fd_sc_hd__mux2i_1" "A1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__mux2i_1" "Y" '(0.4805)
++defineGateSize "sky130_fd_sc_hd__mux2i_2" "A1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__mux2i_2" "Y" '(1.69125)
++defineGateSize "sky130_fd_sc_hd__mux2i_2" "A0" 0.495
++defineGateSize "sky130_fd_sc_hd__mux2i_2" "S" 0.7425
++defineGateSize "sky130_fd_sc_hd__mux2i_4" "S" 1.2375
++defineGateSize "sky130_fd_sc_hd__mux2i_4" "A0" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__mux2i_4" "Y" '(2.1945)
++defineGateSize "sky130_fd_sc_hd__mux2i_4" "A1" 0.99
++defineGateSize "sky130_fd_sc_hd__mux4_1" "S0" 0.378
++defineGateSize "sky130_fd_sc_hd__mux4_1" "S1" 0.252
++defineGateSize "sky130_fd_sc_hd__mux4_1" "A2" 0.126
++defineGateSize "sky130_fd_sc_hd__mux4_1" "A1" 0.126
++defineGateSize "sky130_fd_sc_hd__mux4_1" "A0" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__mux4_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__mux4_1" "A3" 0.126
++defineGateSize "sky130_fd_sc_hd__mux4_2" "S0" 0.393
++defineGateSize "sky130_fd_sc_hd__mux4_2" "A2" 0.159
++defineGateSize "sky130_fd_sc_hd__mux4_2" "A3" 0.159
++defineGateSize "sky130_fd_sc_hd__mux4_2" "S1" 0.303
++defineGateSize "sky130_fd_sc_hd__mux4_2" "A1" 0.159
++defineGateSize "sky130_fd_sc_hd__mux4_2" "A0" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__mux4_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__inv_8" "A" 1.98
++defineDiodeProtection "sky130_fd_sc_hd__inv_8" "Y" '(1.782)
++defineGateSize "sky130_fd_sc_hd__lpflow_bleeder_1" "SHORT" 0.27
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_clkbufkapwr_1" "X" '(0.3406)
++defineGateSize "sky130_fd_sc_hd__lpflow_clkbufkapwr_1" "A" 0.1965
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_clkbufkapwr_16" "X" '(3.1808)
++defineGateSize "sky130_fd_sc_hd__lpflow_clkbufkapwr_16" "A" 0.852
++defineGateSize "sky130_fd_sc_hd__lpflow_clkbufkapwr_2" "A" 0.213
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_clkbufkapwr_2" "X" '(0.3834)
++defineGateSize "sky130_fd_sc_hd__lpflow_clkbufkapwr_4" "A" 0.213
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_clkbufkapwr_4" "X" '(0.7952)
++defineGateSize "sky130_fd_sc_hd__lpflow_clkbufkapwr_8" "A" 0.426
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_clkbufkapwr_8" "X" '(1.5904)
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_clkinvkapwr_1" "Y" '(0.336)
++defineGateSize "sky130_fd_sc_hd__lpflow_clkinvkapwr_1" "A" 0.315
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_clkinvkapwr_16" "Y" '(4.5209)
++defineGateSize "sky130_fd_sc_hd__lpflow_clkinvkapwr_16" "A" 4.608
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_clkinvkapwr_2" "Y" '(0.6626)
++defineGateSize "sky130_fd_sc_hd__lpflow_clkinvkapwr_2" "A" 0.576
++defineGateSize "sky130_fd_sc_hd__lpflow_clkinvkapwr_4" "A" 1.152
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_clkinvkapwr_4" "Y" '(1.0752)
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_clkinvkapwr_8" "Y" '(2.0904)
++defineGateSize "sky130_fd_sc_hd__lpflow_clkinvkapwr_8" "A" 2.304
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_inputiso0n_1" "X" '(0.657)
++defineGateSize "sky130_fd_sc_hd__lpflow_inputiso0n_1" "SLEEP_B" 0.126
++defineGateSize "sky130_fd_sc_hd__lpflow_inputiso0n_1" "A" 0.126
++defineGateSize "sky130_fd_sc_hd__lpflow_inputiso0p_1" "SLEEP" 0.126
++defineGateSize "sky130_fd_sc_hd__lpflow_inputiso0p_1" "A" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_inputiso0p_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__lpflow_inputiso1n_1" "A" 0.126
++defineGateSize "sky130_fd_sc_hd__lpflow_inputiso1n_1" "SLEEP_B" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_inputiso1n_1" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__lpflow_inputiso1p_1" "SLEEP" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_inputiso1p_1" "X" '(0.509)
++defineGateSize "sky130_fd_sc_hd__lpflow_inputiso1p_1" "A" 0.126
++defineGateSize "sky130_fd_sc_hd__lpflow_inputisolatch_1" "SLEEP_B" 0.1455
++defineGateSize "sky130_fd_sc_hd__lpflow_inputisolatch_1" "D" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_inputisolatch_1" "Q" '(0.429)
++defineGateSize "sky130_fd_sc_hd__lpflow_isobufsrc_1" "A" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_isobufsrc_1" "X" '(0.4355)
++defineGateSize "sky130_fd_sc_hd__lpflow_isobufsrc_1" "SLEEP" 0.2475
++defineGateSize "sky130_fd_sc_hd__lpflow_isobufsrc_16" "A" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_isobufsrc_16" "X" '(4.968)
++defineGateSize "sky130_fd_sc_hd__lpflow_isobufsrc_16" "SLEEP" 3.96
++defineGateSize "sky130_fd_sc_hd__lpflow_isobufsrc_2" "A" 0.126
++defineGateSize "sky130_fd_sc_hd__lpflow_isobufsrc_2" "SLEEP" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_isobufsrc_2" "X" '(0.621)
++defineGateSize "sky130_fd_sc_hd__lpflow_isobufsrc_4" "A" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__lpflow_isobufsrc_4" "X" '(1.242)
++defineGateSize "sky130_fd_sc_hd__lpflow_isobufsrc_4" "SLEEP" 0.99
++defineGateSize "sky130_fd_sc_hd__einvn_2" "TE_B" 0.441
++defineGateSize "sky130_fd_sc_hd__einvn_2" "A" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__einvn_2" "Z" '(0.6948)
++defineGateSize "sky130_fd_sc_hd__einvn_4" "TE_B" 0.8115
++defineDiodeProtection "sky130_fd_sc_hd__einvn_4" "Z" '(0.891)
++defineGateSize "sky130_fd_sc_hd__einvn_4" "A" 0.99
++defineGateSize "sky130_fd_sc_hd__einvn_8" "TE_B" 1.3755
++defineDiodeProtection "sky130_fd_sc_hd__einvn_8" "Z" '(1.782)
++defineGateSize "sky130_fd_sc_hd__einvn_8" "A" 1.98
++defineGateSize "sky130_fd_sc_hd__einvp_1" "TE" 0.2235
++defineGateSize "sky130_fd_sc_hd__einvp_1" "A" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__einvp_1" "Z" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__einvp_2" "A" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__einvp_2" "Z" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__einvp_2" "TE" 0.354
++defineGateSize "sky130_fd_sc_hd__einvp_4" "TE" 0.6375
++defineGateSize "sky130_fd_sc_hd__einvp_4" "A" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__einvp_4" "Z" '(0.891)
++defineGateSize "sky130_fd_sc_hd__einvp_8" "A" 1.98
++defineGateSize "sky130_fd_sc_hd__einvp_8" "TE" 1.0275
++defineDiodeProtection "sky130_fd_sc_hd__einvp_8" "Z" '(1.782)
++defineDiodeProtection "sky130_fd_sc_hd__fa_1" "COUT" '(0.429)
++defineGateSize "sky130_fd_sc_hd__fa_1" "CIN" 0.378
++defineDiodeProtection "sky130_fd_sc_hd__fa_1" "SUM" '(0.429)
++defineGateSize "sky130_fd_sc_hd__fa_1" "A" 0.504
++defineGateSize "sky130_fd_sc_hd__fa_1" "B" 0.504
++defineDiodeProtection "sky130_fd_sc_hd__fa_2" "COUT" '(0.4455)
++defineDiodeProtection "sky130_fd_sc_hd__fa_2" "SUM" '(0.5235)
++defineGateSize "sky130_fd_sc_hd__fa_2" "A" 0.6315
++defineGateSize "sky130_fd_sc_hd__fa_2" "B" 0.6315
++defineGateSize "sky130_fd_sc_hd__fa_2" "CIN" 0.4755
++defineDiodeProtection "sky130_fd_sc_hd__fa_4" "COUT" '(0.891)
++defineDiodeProtection "sky130_fd_sc_hd__fa_4" "SUM" '(0.943)
++defineGateSize "sky130_fd_sc_hd__fa_4" "A" 0.633
++defineGateSize "sky130_fd_sc_hd__fa_4" "B" 0.633
++defineGateSize "sky130_fd_sc_hd__fa_4" "CIN" 0.477
++defineDiodeProtection "sky130_fd_sc_hd__fah_1" "COUT" '(0.4355)
++defineGateSize "sky130_fd_sc_hd__fah_1" "A" 0.492
++defineDiodeProtection "sky130_fd_sc_hd__fah_1" "SUM" '(0.506)
++defineGateSize "sky130_fd_sc_hd__fah_1" "CI" 0.246
++defineGateSize "sky130_fd_sc_hd__fah_1" "B" 0.6915
++defineDiodeProtection "sky130_fd_sc_hd__fahcin_1" "COUT" '(0.4028)
++defineGateSize "sky130_fd_sc_hd__fahcin_1" "A" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__fahcin_1" "SUM" '(0.47025)
++defineGateSize "sky130_fd_sc_hd__fahcin_1" "CIN" 0.4935
++defineGateSize "sky130_fd_sc_hd__fahcin_1" "B" 0.6915
++defineDiodeProtection "sky130_fd_sc_hd__fahcon_1" "COUT_N" '(0.4028)
++defineGateSize "sky130_fd_sc_hd__fahcon_1" "A" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__fahcon_1" "SUM" '(0.46375)
++defineGateSize "sky130_fd_sc_hd__fahcon_1" "CI" 0.4935
++defineGateSize "sky130_fd_sc_hd__fahcon_1" "B" 0.9375
++defineDiodeProtection "sky130_fd_sc_hd__ha_1" "SUM" '(0.429)
++defineDiodeProtection "sky130_fd_sc_hd__ha_1" "COUT" '(0.429)
++defineGateSize "sky130_fd_sc_hd__ha_1" "A" 0.252
++defineGateSize "sky130_fd_sc_hd__ha_1" "B" 0.252
++defineDiodeProtection "sky130_fd_sc_hd__ha_2" "SUM" '(0.5115)
++defineDiodeProtection "sky130_fd_sc_hd__ha_2" "COUT" '(0.5115)
++defineGateSize "sky130_fd_sc_hd__ha_2" "A" 0.318
++defineGateSize "sky130_fd_sc_hd__ha_2" "B" 0.318
++defineDiodeProtection "sky130_fd_sc_hd__ha_4" "SUM" '(0.891)
++defineGateSize "sky130_fd_sc_hd__ha_4" "A" 0.99
++defineGateSize "sky130_fd_sc_hd__ha_4" "B" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__ha_4" "COUT" '(0.891)
++defineDiodeProtection "sky130_fd_sc_hd__inv_1" "Y" '(0.429)
++defineGateSize "sky130_fd_sc_hd__inv_1" "A" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__inv_12" "Y" '(2.673)
++defineGateSize "sky130_fd_sc_hd__inv_12" "A" 2.97
++defineDiodeProtection "sky130_fd_sc_hd__inv_16" "Y" '(3.564)
++defineGateSize "sky130_fd_sc_hd__inv_16" "A" 3.96
++defineDiodeProtection "sky130_fd_sc_hd__inv_4" "Y" '(0.891)
++defineGateSize "sky130_fd_sc_hd__inv_4" "A" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__inv_6" "Y" '(1.3365)
++defineGateSize "sky130_fd_sc_hd__inv_6" "A" 1.485
++defineGateSize "sky130_fd_sc_hd__dlrtn_2" "RESET_B" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__dlrtn_2" "Q" '(0.4805)
++defineGateSize "sky130_fd_sc_hd__dlrtn_2" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__dlrtn_2" "GATE_N" 0.159
++defineGateSize "sky130_fd_sc_hd__dlrtn_4" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__dlrtn_4" "GATE_N" 0.159
++defineGateSize "sky130_fd_sc_hd__dlrtn_4" "RESET_B" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__dlrtn_4" "Q" '(1.01475)
++defineGateSize "sky130_fd_sc_hd__dlrtp_1" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__dlrtp_1" "GATE" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__dlrtp_1" "Q" '(0.429)
++defineGateSize "sky130_fd_sc_hd__dlrtp_1" "RESET_B" 0.2475
++defineGateSize "sky130_fd_sc_hd__dlrtp_2" "RESET_B" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__dlrtp_2" "Q" '(0.4805)
++defineGateSize "sky130_fd_sc_hd__dlrtp_2" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__dlrtp_2" "GATE" 0.159
++defineGateSize "sky130_fd_sc_hd__dlrtp_4" "RESET_B" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__dlrtp_4" "Q" '(1.01475)
++defineGateSize "sky130_fd_sc_hd__dlrtp_4" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__dlrtp_4" "GATE" 0.159
++defineGateSize "sky130_fd_sc_hd__dlxbn_1" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__dlxbn_1" "GATE_N" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__dlxbn_1" "Q" '(0.429)
++defineDiodeProtection "sky130_fd_sc_hd__dlxbn_1" "Q_N" '(0.429)
++defineGateSize "sky130_fd_sc_hd__dlxbn_2" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__dlxbn_2" "GATE_N" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__dlxbn_2" "Q" '(0.4455)
++defineDiodeProtection "sky130_fd_sc_hd__dlxbn_2" "Q_N" '(0.45375)
++defineGateSize "sky130_fd_sc_hd__dlxbp_1" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__dlxbp_1" "GATE" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__dlxbp_1" "Q" '(0.429)
++defineDiodeProtection "sky130_fd_sc_hd__dlxbp_1" "Q_N" '(0.429)
++defineGateSize "sky130_fd_sc_hd__dlxtn_1" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__dlxtn_1" "GATE_N" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__dlxtn_1" "Q" '(0.429)
++defineGateSize "sky130_fd_sc_hd__dlxtn_2" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__dlxtn_2" "GATE_N" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__dlxtn_2" "Q" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__dlxtn_4" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__dlxtn_4" "GATE_N" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__dlxtn_4" "Q" '(0.924)
++defineGateSize "sky130_fd_sc_hd__dlxtp_1" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__dlxtp_1" "GATE" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__dlxtp_1" "Q" '(0.47025)
++defineDiodeProtection "sky130_fd_sc_hd__dlygate4sd1_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__dlygate4sd1_1" "A" 0.126
++defineGateSize "sky130_fd_sc_hd__dlygate4sd2_1" "A" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__dlygate4sd2_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__dlygate4sd3_1" "A" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__dlygate4sd3_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__dlymetal6s2s_1" "A" 0.126
++defineGateSize "sky130_fd_sc_hd__dlymetal6s2s_1" "X" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__dlymetal6s2s_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__dlymetal6s4s_1" "A" 0.126
++defineGateSize "sky130_fd_sc_hd__dlymetal6s4s_1" "X" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__dlymetal6s4s_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__dlymetal6s6s_1" "A" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__dlymetal6s6s_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__ebufn_1" "TE_B" 0.309
++defineGateSize "sky130_fd_sc_hd__ebufn_1" "A" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__ebufn_1" "Z" '(0.601)
++defineGateSize "sky130_fd_sc_hd__ebufn_2" "A" 0.159
++defineGateSize "sky130_fd_sc_hd__ebufn_2" "TE_B" 0.441
++defineDiodeProtection "sky130_fd_sc_hd__ebufn_2" "Z" '(0.4455)
++defineDiodeProtection "sky130_fd_sc_hd__ebufn_4" "Z" '(0.891)
++defineGateSize "sky130_fd_sc_hd__ebufn_4" "TE_B" 0.8115
++defineGateSize "sky130_fd_sc_hd__ebufn_4" "A" 0.2475
++defineGateSize "sky130_fd_sc_hd__ebufn_8" "A" 0.495
++defineGateSize "sky130_fd_sc_hd__ebufn_8" "TE_B" 1.3755
++defineDiodeProtection "sky130_fd_sc_hd__ebufn_8" "Z" '(1.782)
++defineGateSize "sky130_fd_sc_hd__edfxbp_1" "CLK" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__edfxbp_1" "Q_N" '(0.429)
++defineGateSize "sky130_fd_sc_hd__edfxbp_1" "DE" 0.318
++defineGateSize "sky130_fd_sc_hd__edfxbp_1" "D" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__edfxbp_1" "Q" '(0.462)
++defineGateSize "sky130_fd_sc_hd__edfxtp_1" "CLK" 0.159
++defineGateSize "sky130_fd_sc_hd__edfxtp_1" "DE" 0.318
++defineGateSize "sky130_fd_sc_hd__edfxtp_1" "D" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__edfxtp_1" "Q" '(0.462)
++defineGateSize "sky130_fd_sc_hd__einvn_0" "TE_B" 0.222
++defineGateSize "sky130_fd_sc_hd__einvn_0" "A" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__einvn_0" "Z" '(0.2756)
++defineDiodeProtection "sky130_fd_sc_hd__einvn_1" "Z" '(0.429)
++defineGateSize "sky130_fd_sc_hd__einvn_1" "A" 0.2475
++defineGateSize "sky130_fd_sc_hd__einvn_1" "TE_B" 0.309
++defineGateSize "sky130_fd_sc_hd__dfbbp_1" "RESET_B" 0.159
++defineGateSize "sky130_fd_sc_hd__dfbbp_1" "CLK" 0.159
++defineGateSize "sky130_fd_sc_hd__dfbbp_1" "SET_B" 0.252
++defineDiodeProtection "sky130_fd_sc_hd__dfbbp_1" "Q" '(0.429)
++defineGateSize "sky130_fd_sc_hd__dfbbp_1" "D" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__dfbbp_1" "Q_N" '(0.429)
++defineDiodeProtection "sky130_fd_sc_hd__dfrbp_1" "Q" '(0.449)
++defineDiodeProtection "sky130_fd_sc_hd__dfrbp_1" "Q_N" '(0.429)
++defineGateSize "sky130_fd_sc_hd__dfrbp_1" "D" 0.126
++defineGateSize "sky130_fd_sc_hd__dfrbp_1" "CLK" 0.159
++defineGateSize "sky130_fd_sc_hd__dfrbp_1" "RESET_B" 0.252
++defineDiodeProtection "sky130_fd_sc_hd__dfrbp_2" "Q" '(0.5115)
++defineDiodeProtection "sky130_fd_sc_hd__dfrbp_2" "Q_N" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__dfrbp_2" "D" 0.126
++defineGateSize "sky130_fd_sc_hd__dfrbp_2" "CLK" 0.159
++defineGateSize "sky130_fd_sc_hd__dfrbp_2" "RESET_B" 0.252
++defineGateSize "sky130_fd_sc_hd__dfrtn_1" "CLK_N" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__dfrtn_1" "Q" '(0.429)
++defineGateSize "sky130_fd_sc_hd__dfrtn_1" "D" 0.126
++defineGateSize "sky130_fd_sc_hd__dfrtn_1" "RESET_B" 0.252
++defineDiodeProtection "sky130_fd_sc_hd__dfrtp_1" "Q" '(0.429)
++defineGateSize "sky130_fd_sc_hd__dfrtp_1" "D" 0.126
++defineGateSize "sky130_fd_sc_hd__dfrtp_1" "CLK" 0.159
++defineGateSize "sky130_fd_sc_hd__dfrtp_1" "RESET_B" 0.252
++defineDiodeProtection "sky130_fd_sc_hd__dfrtp_2" "Q" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__dfrtp_2" "D" 0.126
++defineGateSize "sky130_fd_sc_hd__dfrtp_2" "CLK" 0.159
++defineGateSize "sky130_fd_sc_hd__dfrtp_2" "RESET_B" 0.252
++defineDiodeProtection "sky130_fd_sc_hd__dfrtp_4" "Q" '(0.891)
++defineGateSize "sky130_fd_sc_hd__dfrtp_4" "D" 0.126
++defineGateSize "sky130_fd_sc_hd__dfrtp_4" "CLK" 0.159
++defineGateSize "sky130_fd_sc_hd__dfrtp_4" "RESET_B" 0.252
++defineDiodeProtection "sky130_fd_sc_hd__dfsbp_1" "Q" '(0.429)
++defineDiodeProtection "sky130_fd_sc_hd__dfsbp_1" "Q_N" '(0.429)
++defineGateSize "sky130_fd_sc_hd__dfsbp_1" "D" 0.222
++defineGateSize "sky130_fd_sc_hd__dfsbp_1" "SET_B" 0.252
++defineGateSize "sky130_fd_sc_hd__dfsbp_1" "CLK" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__dfsbp_2" "Q_N" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__dfsbp_2" "D" 0.222
++defineDiodeProtection "sky130_fd_sc_hd__dfsbp_2" "Q" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__dfsbp_2" "SET_B" 0.252
++defineGateSize "sky130_fd_sc_hd__dfsbp_2" "CLK" 0.159
++defineGateSize "sky130_fd_sc_hd__dfstp_1" "D" 0.222
++defineDiodeProtection "sky130_fd_sc_hd__dfstp_1" "Q" '(0.429)
++defineGateSize "sky130_fd_sc_hd__dfstp_1" "SET_B" 0.252
++defineGateSize "sky130_fd_sc_hd__dfstp_1" "CLK" 0.159
++defineGateSize "sky130_fd_sc_hd__dfstp_2" "D" 0.222
++defineDiodeProtection "sky130_fd_sc_hd__dfstp_2" "Q" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__dfstp_2" "SET_B" 0.252
++defineGateSize "sky130_fd_sc_hd__dfstp_2" "CLK" 0.159
++defineGateSize "sky130_fd_sc_hd__dfstp_4" "D" 0.222
++defineDiodeProtection "sky130_fd_sc_hd__dfstp_4" "Q" '(1.32)
++defineGateSize "sky130_fd_sc_hd__dfstp_4" "SET_B" 0.252
++defineGateSize "sky130_fd_sc_hd__dfstp_4" "CLK" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__dfxbp_1" "Q_N" '(0.429)
++defineGateSize "sky130_fd_sc_hd__dfxbp_1" "D" 0.126
++defineGateSize "sky130_fd_sc_hd__dfxbp_1" "CLK" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__dfxbp_1" "Q" '(0.429)
++defineDiodeProtection "sky130_fd_sc_hd__dfxbp_2" "Q_N" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__dfxbp_2" "D" 0.126
++defineGateSize "sky130_fd_sc_hd__dfxbp_2" "CLK" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__dfxbp_2" "Q" '(0.4455)
++defineDiodeProtection "sky130_fd_sc_hd__dfxtp_1" "Q" '(0.429)
++defineGateSize "sky130_fd_sc_hd__dfxtp_1" "CLK" 0.159
++defineGateSize "sky130_fd_sc_hd__dfxtp_1" "D" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__dfxtp_2" "Q" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__dfxtp_2" "CLK" 0.159
++defineGateSize "sky130_fd_sc_hd__dfxtp_2" "D" 0.126
++defineGateSize "sky130_fd_sc_hd__dfxtp_4" "CLK" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__dfxtp_4" "Q" '(0.891)
++defineGateSize "sky130_fd_sc_hd__dfxtp_4" "D" 0.126
++defineGateSize "sky130_fd_sc_hd__diode_2" "DIODE" 0
++defineDiodeProtection "sky130_fd_sc_hd__diode_2" "DIODE" '(0.4347)
++defineGateSize "sky130_fd_sc_hd__dlclkp_1" "GATE" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__dlclkp_1" "GCLK" '(0.429)
++defineGateSize "sky130_fd_sc_hd__dlclkp_1" "CLK" 0.318
++defineGateSize "sky130_fd_sc_hd__dlclkp_2" "GATE" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__dlclkp_2" "GCLK" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__dlclkp_2" "CLK" 0.318
++defineDiodeProtection "sky130_fd_sc_hd__dlclkp_4" "GCLK" '(1.0395)
++defineGateSize "sky130_fd_sc_hd__dlclkp_4" "CLK" 0.4065
++defineGateSize "sky130_fd_sc_hd__dlclkp_4" "GATE" 0.159
++defineGateSize "sky130_fd_sc_hd__dlrbn_1" "RESET_B" 0.2475
++defineGateSize "sky130_fd_sc_hd__dlrbn_1" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__dlrbn_1" "GATE_N" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__dlrbn_1" "Q_N" '(0.429)
++defineDiodeProtection "sky130_fd_sc_hd__dlrbn_1" "Q" '(0.429)
++defineGateSize "sky130_fd_sc_hd__dlrbn_2" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__dlrbn_2" "GATE_N" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__dlrbn_2" "Q" '(0.53625)
++defineGateSize "sky130_fd_sc_hd__dlrbn_2" "RESET_B" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__dlrbn_2" "Q_N" '(0.45375)
++defineGateSize "sky130_fd_sc_hd__dlrbp_1" "RESET_B" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__dlrbp_1" "Q_N" '(0.429)
++defineGateSize "sky130_fd_sc_hd__dlrbp_1" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__dlrbp_1" "GATE" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__dlrbp_1" "Q" '(0.429)
++defineDiodeProtection "sky130_fd_sc_hd__dlrbp_2" "Q" '(0.4785)
++defineGateSize "sky130_fd_sc_hd__dlrbp_2" "RESET_B" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__dlrbp_2" "Q_N" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__dlrbp_2" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__dlrbp_2" "GATE" 0.159
++defineGateSize "sky130_fd_sc_hd__dlrtn_1" "RESET_B" 0.2475
++defineGateSize "sky130_fd_sc_hd__dlrtn_1" "D" 0.159
++defineGateSize "sky130_fd_sc_hd__dlrtn_1" "GATE_N" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__dlrtn_1" "Q" '(0.429)
++defineGateSize "sky130_fd_sc_hd__clkbuf_2" "A" 0.213
++defineDiodeProtection "sky130_fd_sc_hd__clkbuf_2" "X" '(0.3834)
++defineGateSize "sky130_fd_sc_hd__clkbuf_4" "A" 0.213
++defineDiodeProtection "sky130_fd_sc_hd__clkbuf_4" "X" '(0.7952)
++defineGateSize "sky130_fd_sc_hd__clkbuf_8" "A" 0.426
++defineDiodeProtection "sky130_fd_sc_hd__clkbuf_8" "X" '(1.5904)
++defineGateSize "sky130_fd_sc_hd__clkdlybuf4s15_1" "A" 0.213
++defineDiodeProtection "sky130_fd_sc_hd__clkdlybuf4s15_1" "X" '(0.3763)
++defineGateSize "sky130_fd_sc_hd__clkdlybuf4s15_2" "A" 0.213
++defineDiodeProtection "sky130_fd_sc_hd__clkdlybuf4s15_2" "X" '(0.3976)
++defineGateSize "sky130_fd_sc_hd__clkdlybuf4s18_1" "A" 0.213
++defineDiodeProtection "sky130_fd_sc_hd__clkdlybuf4s18_1" "X" '(0.3763)
++defineGateSize "sky130_fd_sc_hd__clkdlybuf4s18_2" "A" 0.213
++defineDiodeProtection "sky130_fd_sc_hd__clkdlybuf4s18_2" "X" '(0.3976)
++defineGateSize "sky130_fd_sc_hd__clkdlybuf4s25_1" "A" 0.213
++defineDiodeProtection "sky130_fd_sc_hd__clkdlybuf4s25_1" "X" '(0.7029)
++defineDiodeProtection "sky130_fd_sc_hd__clkdlybuf4s25_2" "X" '(0.497)
++defineGateSize "sky130_fd_sc_hd__clkdlybuf4s25_2" "A" 0.213
++defineGateSize "sky130_fd_sc_hd__clkdlybuf4s50_1" "A" 0.213
++defineDiodeProtection "sky130_fd_sc_hd__clkdlybuf4s50_1" "X" '(0.5041)
++defineGateSize "sky130_fd_sc_hd__clkdlybuf4s50_2" "A" 0.213
++defineDiodeProtection "sky130_fd_sc_hd__clkdlybuf4s50_2" "X" '(0.3905)
++defineDiodeProtection "sky130_fd_sc_hd__clkinv_1" "Y" '(0.336)
++defineGateSize "sky130_fd_sc_hd__clkinv_1" "A" 0.315
++defineDiodeProtection "sky130_fd_sc_hd__clkinv_16" "Y" '(4.5209)
++defineGateSize "sky130_fd_sc_hd__clkinv_16" "A" 4.608
++defineDiodeProtection "sky130_fd_sc_hd__clkinv_2" "Y" '(0.6626)
++defineGateSize "sky130_fd_sc_hd__clkinv_2" "A" 0.576
++defineGateSize "sky130_fd_sc_hd__clkinv_4" "A" 1.152
++defineDiodeProtection "sky130_fd_sc_hd__clkinv_4" "Y" '(1.0752)
++defineDiodeProtection "sky130_fd_sc_hd__clkinv_8" "Y" '(2.0904)
++defineGateSize "sky130_fd_sc_hd__clkinv_8" "A" 2.304
++defineDiodeProtection "sky130_fd_sc_hd__clkinvlp_2" "Y" '(0.43675)
++defineGateSize "sky130_fd_sc_hd__clkinvlp_2" "A" 0.665
++defineDiodeProtection "sky130_fd_sc_hd__clkinvlp_4" "Y" '(0.714)
++defineGateSize "sky130_fd_sc_hd__clkinvlp_4" "A" 1.33
++defineGateSize "sky130_fd_sc_hd__dfbbn_1" "RESET_B" 0.159
++defineGateSize "sky130_fd_sc_hd__dfbbn_1" "CLK_N" 0.159
++defineGateSize "sky130_fd_sc_hd__dfbbn_1" "SET_B" 0.252
++defineDiodeProtection "sky130_fd_sc_hd__dfbbn_1" "Q" '(0.429)
++defineGateSize "sky130_fd_sc_hd__dfbbn_1" "D" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__dfbbn_1" "Q_N" '(0.429)
++defineGateSize "sky130_fd_sc_hd__dfbbn_2" "RESET_B" 0.159
++defineGateSize "sky130_fd_sc_hd__dfbbn_2" "CLK_N" 0.159
++defineGateSize "sky130_fd_sc_hd__dfbbn_2" "SET_B" 0.252
++defineDiodeProtection "sky130_fd_sc_hd__dfbbn_2" "Q" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__dfbbn_2" "D" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__dfbbn_2" "Q_N" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__and3_4" "A" 0.2475
++defineGateSize "sky130_fd_sc_hd__and3_4" "B" 0.2475
++defineGateSize "sky130_fd_sc_hd__and3_4" "C" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__and3_4" "X" '(0.924)
++defineGateSize "sky130_fd_sc_hd__and3b_1" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__and3b_1" "C" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__and3b_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__and3b_1" "A_N" 0.126
++defineGateSize "sky130_fd_sc_hd__and3b_2" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__and3b_2" "A_N" 0.126
++defineGateSize "sky130_fd_sc_hd__and3b_2" "C" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__and3b_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__and3b_4" "A_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__and3b_4" "X" '(0.934)
++defineGateSize "sky130_fd_sc_hd__and3b_4" "C" 0.2475
++defineGateSize "sky130_fd_sc_hd__and3b_4" "B" 0.2475
++defineGateSize "sky130_fd_sc_hd__and4_1" "A" 0.126
++defineGateSize "sky130_fd_sc_hd__and4_1" "C" 0.126
++defineGateSize "sky130_fd_sc_hd__and4_1" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__and4_1" "D" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__and4_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__and4_2" "A" 0.126
++defineGateSize "sky130_fd_sc_hd__and4_2" "C" 0.126
++defineGateSize "sky130_fd_sc_hd__and4_2" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__and4_2" "D" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__and4_2" "X" '(0.5445)
++defineGateSize "sky130_fd_sc_hd__and4_4" "C" 0.2475
++defineGateSize "sky130_fd_sc_hd__and4_4" "A" 0.2475
++defineGateSize "sky130_fd_sc_hd__and4_4" "B" 0.2475
++defineGateSize "sky130_fd_sc_hd__and4_4" "D" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__and4_4" "X" '(0.891)
++defineDiodeProtection "sky130_fd_sc_hd__and4b_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__and4b_1" "A_N" 0.126
++defineGateSize "sky130_fd_sc_hd__and4b_1" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__and4b_1" "D" 0.126
++defineGateSize "sky130_fd_sc_hd__and4b_1" "C" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__and4b_2" "X" '(0.50325)
++defineGateSize "sky130_fd_sc_hd__and4b_2" "D" 0.126
++defineGateSize "sky130_fd_sc_hd__and4b_2" "C" 0.126
++defineGateSize "sky130_fd_sc_hd__and4b_2" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__and4b_2" "A_N" 0.126
++defineGateSize "sky130_fd_sc_hd__and4b_4" "D" 0.2475
++defineGateSize "sky130_fd_sc_hd__and4b_4" "C" 0.2475
++defineGateSize "sky130_fd_sc_hd__and4b_4" "A_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__and4b_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__and4b_4" "B" 0.2475
++defineGateSize "sky130_fd_sc_hd__and4bb_1" "A_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__and4bb_1" "X" '(0.4254)
++defineGateSize "sky130_fd_sc_hd__and4bb_1" "B_N" 0.126
++defineGateSize "sky130_fd_sc_hd__and4bb_1" "C" 0.126
++defineGateSize "sky130_fd_sc_hd__and4bb_1" "D" 0.126
++defineGateSize "sky130_fd_sc_hd__and4bb_2" "B_N" 0.126
++defineGateSize "sky130_fd_sc_hd__and4bb_2" "C" 0.126
++defineGateSize "sky130_fd_sc_hd__and4bb_2" "A_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__and4bb_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__and4bb_2" "D" 0.126
++defineGateSize "sky130_fd_sc_hd__and4bb_4" "C" 0.2475
++defineGateSize "sky130_fd_sc_hd__and4bb_4" "A_N" 0.126
++defineGateSize "sky130_fd_sc_hd__and4bb_4" "D" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__and4bb_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__and4bb_4" "B_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__buf_1" "X" '(0.3406)
++defineGateSize "sky130_fd_sc_hd__buf_1" "A" 0.1965
++defineDiodeProtection "sky130_fd_sc_hd__buf_12" "X" '(2.673)
++defineGateSize "sky130_fd_sc_hd__buf_12" "A" 0.99
++defineGateSize "sky130_fd_sc_hd__buf_16" "A" 1.485
++defineDiodeProtection "sky130_fd_sc_hd__buf_16" "X" '(3.564)
++defineDiodeProtection "sky130_fd_sc_hd__buf_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__buf_2" "A" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__buf_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__buf_4" "A" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__buf_6" "X" '(1.3365)
++defineGateSize "sky130_fd_sc_hd__buf_6" "A" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__buf_8" "X" '(1.782)
++defineGateSize "sky130_fd_sc_hd__buf_8" "A" 0.7425
++defineGateSize "sky130_fd_sc_hd__bufbuf_16" "A" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__bufbuf_16" "X" '(3.564)
++defineGateSize "sky130_fd_sc_hd__bufbuf_8" "A" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__bufbuf_8" "X" '(1.782)
++defineGateSize "sky130_fd_sc_hd__bufinv_16" "A" 0.7425
++defineDiodeProtection "sky130_fd_sc_hd__bufinv_16" "Y" '(3.564)
++defineGateSize "sky130_fd_sc_hd__bufinv_8" "A" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__bufinv_8" "Y" '(1.782)
++defineDiodeProtection "sky130_fd_sc_hd__clkbuf_1" "X" '(0.3406)
++defineGateSize "sky130_fd_sc_hd__clkbuf_1" "A" 0.1965
++defineDiodeProtection "sky130_fd_sc_hd__clkbuf_16" "X" '(3.1808)
++defineGateSize "sky130_fd_sc_hd__clkbuf_16" "A" 0.852
++defineDiodeProtection "sky130_fd_sc_hd__a31o_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__a31o_2" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a31o_2" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a31o_2" "A3" 0.2475
++defineGateSize "sky130_fd_sc_hd__a31o_2" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a31o_4" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__a31o_4" "A3" 0.495
++defineGateSize "sky130_fd_sc_hd__a31o_4" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__a31o_4" "A2" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a31o_4" "X" '(0.891)
++defineDiodeProtection "sky130_fd_sc_hd__a31oi_1" "Y" '(0.48125)
++defineGateSize "sky130_fd_sc_hd__a31oi_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a31oi_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a31oi_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a31oi_1" "A3" 0.2475
++defineGateSize "sky130_fd_sc_hd__a31oi_2" "B1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a31oi_2" "Y" '(0.922)
++defineGateSize "sky130_fd_sc_hd__a31oi_2" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__a31oi_2" "A3" 0.495
++defineGateSize "sky130_fd_sc_hd__a31oi_2" "A2" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a31oi_4" "Y" '(1.4435)
++defineGateSize "sky130_fd_sc_hd__a31oi_4" "B1" 0.99
++defineGateSize "sky130_fd_sc_hd__a31oi_4" "A3" 0.99
++defineGateSize "sky130_fd_sc_hd__a31oi_4" "A2" 0.99
++defineGateSize "sky130_fd_sc_hd__a31oi_4" "A1" 0.99
++defineGateSize "sky130_fd_sc_hd__a32o_1" "A3" 0.2475
++defineGateSize "sky130_fd_sc_hd__a32o_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a32o_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a32o_1" "B2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a32o_1" "A2" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a32o_1" "X" '(0.5445)
++defineGateSize "sky130_fd_sc_hd__a32o_2" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a32o_2" "A3" 0.2475
++defineGateSize "sky130_fd_sc_hd__a32o_2" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a32o_2" "B2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a32o_2" "B1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a32o_2" "X" '(0.6955)
++defineDiodeProtection "sky130_fd_sc_hd__a32o_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__a32o_4" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__a32o_4" "B2" 0.495
++defineGateSize "sky130_fd_sc_hd__a32o_4" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__a32o_4" "A3" 0.495
++defineGateSize "sky130_fd_sc_hd__a32o_4" "A1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a32oi_1" "Y" '(0.5755)
++defineGateSize "sky130_fd_sc_hd__a32oi_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a32oi_1" "B2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a32oi_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a32oi_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a32oi_1" "A3" 0.2475
++defineGateSize "sky130_fd_sc_hd__a32oi_2" "A3" 0.495
++defineGateSize "sky130_fd_sc_hd__a32oi_2" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__a32oi_2" "A1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a32oi_2" "Y" '(0.891)
++defineGateSize "sky130_fd_sc_hd__a32oi_2" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__a32oi_2" "B2" 0.495
++defineGateSize "sky130_fd_sc_hd__a32oi_4" "A2" 0.99
++defineGateSize "sky130_fd_sc_hd__a32oi_4" "A3" 0.99
++defineGateSize "sky130_fd_sc_hd__a32oi_4" "B2" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__a32oi_4" "Y" '(1.782)
++defineGateSize "sky130_fd_sc_hd__a32oi_4" "B1" 0.99
++defineGateSize "sky130_fd_sc_hd__a32oi_4" "A1" 0.99
++defineGateSize "sky130_fd_sc_hd__a41o_1" "A4" 0.2475
++defineGateSize "sky130_fd_sc_hd__a41o_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a41o_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a41o_1" "B1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a41o_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__a41o_1" "A3" 0.2475
++defineGateSize "sky130_fd_sc_hd__a41o_2" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a41o_2" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a41o_2" "A3" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a41o_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__a41o_2" "A4" 0.2475
++defineGateSize "sky130_fd_sc_hd__a41o_2" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a41o_4" "A4" 0.495
++defineGateSize "sky130_fd_sc_hd__a41o_4" "A3" 0.495
++defineGateSize "sky130_fd_sc_hd__a41o_4" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__a41o_4" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__a41o_4" "B1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a41o_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__a41oi_1" "B1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a41oi_1" "Y" '(0.6695)
++defineGateSize "sky130_fd_sc_hd__a41oi_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a41oi_1" "A4" 0.2475
++defineGateSize "sky130_fd_sc_hd__a41oi_1" "A3" 0.2475
++defineGateSize "sky130_fd_sc_hd__a41oi_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a41oi_2" "A4" 0.495
++defineGateSize "sky130_fd_sc_hd__a41oi_2" "A3" 0.495
++defineGateSize "sky130_fd_sc_hd__a41oi_2" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__a41oi_2" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__a41oi_2" "B1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a41oi_2" "Y" '(0.621)
++defineGateSize "sky130_fd_sc_hd__a41oi_4" "A4" 0.99
++defineGateSize "sky130_fd_sc_hd__a41oi_4" "A3" 0.99
++defineGateSize "sky130_fd_sc_hd__a41oi_4" "A2" 0.99
++defineGateSize "sky130_fd_sc_hd__a41oi_4" "A1" 0.99
++defineGateSize "sky130_fd_sc_hd__a41oi_4" "B1" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__a41oi_4" "Y" '(1.242)
++defineDiodeProtection "sky130_fd_sc_hd__and2_0" "X" '(0.2809)
++defineGateSize "sky130_fd_sc_hd__and2_0" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__and2_0" "A" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__and2_1" "X" '(0.657)
++defineGateSize "sky130_fd_sc_hd__and2_1" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__and2_1" "A" 0.126
++defineGateSize "sky130_fd_sc_hd__and2_2" "A" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__and2_2" "X" '(0.6435)
++defineGateSize "sky130_fd_sc_hd__and2_2" "B" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__and2_4" "X" '(0.924)
++defineGateSize "sky130_fd_sc_hd__and2_4" "B" 0.2475
++defineGateSize "sky130_fd_sc_hd__and2_4" "A" 0.2475
++defineGateSize "sky130_fd_sc_hd__and2b_1" "A_N" 0.126
++defineGateSize "sky130_fd_sc_hd__and2b_1" "B" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__and2b_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__and2b_2" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__and2b_2" "A_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__and2b_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__and2b_4" "B" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__and2b_4" "X" '(0.934)
++defineGateSize "sky130_fd_sc_hd__and2b_4" "A_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__and3_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__and3_1" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__and3_1" "A" 0.126
++defineGateSize "sky130_fd_sc_hd__and3_1" "C" 0.126
++defineGateSize "sky130_fd_sc_hd__and3_2" "B" 0.126
++defineGateSize "sky130_fd_sc_hd__and3_2" "A" 0.126
++defineGateSize "sky130_fd_sc_hd__and3_2" "C" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__and3_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__a221o_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a221o_1" "B2" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a221o_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__a221o_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a221o_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a221o_1" "C1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a221o_2" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a221o_2" "B2" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a221o_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__a221o_2" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a221o_2" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a221o_2" "C1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a221o_4" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__a221o_4" "C1" 0.495
++defineGateSize "sky130_fd_sc_hd__a221o_4" "B2" 0.495
++defineGateSize "sky130_fd_sc_hd__a221o_4" "A2" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a221o_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__a221o_4" "A1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a221oi_1" "Y" '(0.767)
++defineGateSize "sky130_fd_sc_hd__a221oi_1" "C1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a221oi_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a221oi_1" "B2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a221oi_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a221oi_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a221oi_2" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__a221oi_2" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__a221oi_2" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__a221oi_2" "B2" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a221oi_2" "Y" '(0.7965)
++defineGateSize "sky130_fd_sc_hd__a221oi_2" "C1" 0.495
++defineGateSize "sky130_fd_sc_hd__a221oi_4" "A2" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__a221oi_4" "Y" '(1.593)
++defineGateSize "sky130_fd_sc_hd__a221oi_4" "C1" 0.99
++defineGateSize "sky130_fd_sc_hd__a221oi_4" "A1" 0.99
++defineGateSize "sky130_fd_sc_hd__a221oi_4" "B2" 0.99
++defineGateSize "sky130_fd_sc_hd__a221oi_4" "B1" 0.99
++defineGateSize "sky130_fd_sc_hd__a222oi_1" "C2" 0.246
++defineGateSize "sky130_fd_sc_hd__a222oi_1" "C1" 0.246
++defineGateSize "sky130_fd_sc_hd__a222oi_1" "B1" 0.246
++defineGateSize "sky130_fd_sc_hd__a222oi_1" "A2" 0.246
++defineGateSize "sky130_fd_sc_hd__a222oi_1" "A1" 0.246
++defineDiodeProtection "sky130_fd_sc_hd__a222oi_1" "Y" '(0.8976)
++defineGateSize "sky130_fd_sc_hd__a222oi_1" "B2" 0.246
++defineGateSize "sky130_fd_sc_hd__a22o_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a22o_1" "B2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a22o_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a22o_1" "B1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a22o_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__a22o_2" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a22o_2" "B2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a22o_2" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a22o_2" "B1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a22o_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__a22o_4" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__a22o_4" "B2" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a22o_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__a22o_4" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__a22o_4" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__a22oi_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a22oi_1" "B2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a22oi_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a22oi_1" "A1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a22oi_1" "Y" '(0.858)
++defineGateSize "sky130_fd_sc_hd__a22oi_2" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__a22oi_2" "A2" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a22oi_2" "Y" '(1.141)
++defineGateSize "sky130_fd_sc_hd__a22oi_2" "B2" 0.495
++defineGateSize "sky130_fd_sc_hd__a22oi_2" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__a22oi_4" "A2" 0.99
++defineGateSize "sky130_fd_sc_hd__a22oi_4" "B2" 0.99
++defineGateSize "sky130_fd_sc_hd__a22oi_4" "A1" 0.99
++defineGateSize "sky130_fd_sc_hd__a22oi_4" "B1" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__a22oi_4" "Y" '(1.782)
++defineGateSize "sky130_fd_sc_hd__a2bb2o_1" "B1" 0.126
++defineGateSize "sky130_fd_sc_hd__a2bb2o_1" "A2_N" 0.126
++defineGateSize "sky130_fd_sc_hd__a2bb2o_1" "B2" 0.126
++defineGateSize "sky130_fd_sc_hd__a2bb2o_1" "A1_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__a2bb2o_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__a2bb2o_2" "B1" 0.159
++defineGateSize "sky130_fd_sc_hd__a2bb2o_2" "A2_N" 0.159
++defineGateSize "sky130_fd_sc_hd__a2bb2o_2" "B2" 0.159
++defineGateSize "sky130_fd_sc_hd__a2bb2o_2" "A1_N" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__a2bb2o_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__a2bb2o_4" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__a2bb2o_4" "B2" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a2bb2o_4" "X" '(0.891)
++defineGateSize "sky130_fd_sc_hd__a2bb2o_4" "A1_N" 0.495
++defineGateSize "sky130_fd_sc_hd__a2bb2o_4" "A2_N" 0.495
++defineGateSize "sky130_fd_sc_hd__a2bb2oi_1" "A1_N" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a2bb2oi_1" "Y" '(0.5155)
++defineGateSize "sky130_fd_sc_hd__a2bb2oi_1" "B2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a2bb2oi_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a2bb2oi_1" "A2_N" 0.2475
++defineGateSize "sky130_fd_sc_hd__a2bb2oi_2" "A2_N" 0.495
++defineGateSize "sky130_fd_sc_hd__a2bb2oi_2" "A1_N" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a2bb2oi_2" "Y" '(0.621)
++defineGateSize "sky130_fd_sc_hd__a2bb2oi_2" "B2" 0.495
++defineGateSize "sky130_fd_sc_hd__a2bb2oi_2" "B1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a2bb2oi_4" "Y" '(1.242)
++defineGateSize "sky130_fd_sc_hd__a2bb2oi_4" "A2_N" 0.99
++defineGateSize "sky130_fd_sc_hd__a2bb2oi_4" "B2" 0.99
++defineGateSize "sky130_fd_sc_hd__a2bb2oi_4" "A1_N" 0.99
++defineGateSize "sky130_fd_sc_hd__a2bb2oi_4" "B1" 0.99
++defineGateSize "sky130_fd_sc_hd__a311o_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a311o_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a311o_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a311o_1" "C1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a311o_1" "A3" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a311o_1" "X" '(0.454)
++defineGateSize "sky130_fd_sc_hd__a311o_2" "C1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a311o_2" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a311o_2" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a311o_2" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a311o_2" "A3" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a311o_2" "X" '(0.4455)
++defineGateSize "sky130_fd_sc_hd__a311o_4" "C1" 0.495
++defineGateSize "sky130_fd_sc_hd__a311o_4" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__a311o_4" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__a311o_4" "A3" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a311o_4" "X" '(0.904)
++defineGateSize "sky130_fd_sc_hd__a311o_4" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__a311oi_1" "A3" 0.2475
++defineGateSize "sky130_fd_sc_hd__a311oi_1" "C1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a311oi_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a311oi_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a311oi_1" "A2" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a311oi_1" "Y" '(0.65975)
++defineGateSize "sky130_fd_sc_hd__a311oi_2" "C1" 0.495
++defineGateSize "sky130_fd_sc_hd__a311oi_2" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__a311oi_2" "A3" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a311oi_2" "Y" '(1.141)
++defineGateSize "sky130_fd_sc_hd__a311oi_2" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__a311oi_2" "A2" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a311oi_4" "Y" '(1.8985)
++defineGateSize "sky130_fd_sc_hd__a311oi_4" "C1" 0.99
++defineGateSize "sky130_fd_sc_hd__a311oi_4" "B1" 0.99
++defineGateSize "sky130_fd_sc_hd__a311oi_4" "A3" 0.99
++defineGateSize "sky130_fd_sc_hd__a311oi_4" "A2" 0.99
++defineGateSize "sky130_fd_sc_hd__a311oi_4" "A1" 0.99
++defineGateSize "sky130_fd_sc_hd__a31o_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a31o_1" "A3" 0.2475
++defineGateSize "sky130_fd_sc_hd__a31o_1" "A1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a31o_1" "X" '(0.43725)
++defineGateSize "sky130_fd_sc_hd__a31o_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a2111o_1" "A2" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a2111o_1" "X" '(0.5045)
++defineGateSize "sky130_fd_sc_hd__a2111o_1" "D1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a2111o_1" "C1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a2111o_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a2111o_1" "A1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a2111o_2" "X" '(0.462)
++defineGateSize "sky130_fd_sc_hd__a2111o_2" "C1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a2111o_2" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a2111o_2" "D1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a2111o_2" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a2111o_2" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a2111o_4" "D1" 0.495
++defineGateSize "sky130_fd_sc_hd__a2111o_4" "C1" 0.495
++defineGateSize "sky130_fd_sc_hd__a2111o_4" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__a2111o_4" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__a2111o_4" "A2" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a2111o_4" "X" '(0.924)
++defineGateSize "sky130_fd_sc_hd__a2111oi_0" "D1" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__a2111oi_0" "Y" '(0.424)
++defineGateSize "sky130_fd_sc_hd__a2111oi_0" "C1" 0.159
++defineGateSize "sky130_fd_sc_hd__a2111oi_0" "B1" 0.159
++defineGateSize "sky130_fd_sc_hd__a2111oi_0" "A2" 0.159
++defineGateSize "sky130_fd_sc_hd__a2111oi_0" "A1" 0.159
++defineGateSize "sky130_fd_sc_hd__a2111oi_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a2111oi_1" "D1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a2111oi_1" "C1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a2111oi_1" "B1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a2111oi_1" "Y" '(1.38875)
++defineGateSize "sky130_fd_sc_hd__a2111oi_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a2111oi_2" "D1" 0.495
++defineGateSize "sky130_fd_sc_hd__a2111oi_2" "C1" 0.495
++defineGateSize "sky130_fd_sc_hd__a2111oi_2" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__a2111oi_2" "A1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a2111oi_2" "Y" '(1.21275)
++defineGateSize "sky130_fd_sc_hd__a2111oi_2" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__a2111oi_4" "D1" 0.99
++defineGateSize "sky130_fd_sc_hd__a2111oi_4" "C1" 0.99
++defineGateSize "sky130_fd_sc_hd__a2111oi_4" "B1" 0.99
++defineGateSize "sky130_fd_sc_hd__a2111oi_4" "A2" 0.99
++defineGateSize "sky130_fd_sc_hd__a2111oi_4" "A1" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__a2111oi_4" "Y" '(2.0095)
++defineGateSize "sky130_fd_sc_hd__a211o_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a211o_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a211o_1" "A1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a211o_1" "X" '(0.43725)
++defineGateSize "sky130_fd_sc_hd__a211o_1" "C1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a211o_2" "X" '(0.452)
++defineGateSize "sky130_fd_sc_hd__a211o_2" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a211o_2" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a211o_2" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a211o_2" "C1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a211o_4" "C1" 0.495
++defineGateSize "sky130_fd_sc_hd__a211o_4" "B1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a211o_4" "X" '(0.93375)
++defineGateSize "sky130_fd_sc_hd__a211o_4" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__a211o_4" "A1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a211oi_1" "Y" '(0.61925)
++defineGateSize "sky130_fd_sc_hd__a211oi_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a211oi_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a211oi_1" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a211oi_1" "C1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a211oi_2" "C1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a211oi_2" "Y" '(0.826)
++defineGateSize "sky130_fd_sc_hd__a211oi_2" "A1" 0.495
++defineGateSize "sky130_fd_sc_hd__a211oi_2" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__a211oi_2" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__a211oi_4" "A2" 0.99
++defineGateSize "sky130_fd_sc_hd__a211oi_4" "A1" 0.99
++defineGateSize "sky130_fd_sc_hd__a211oi_4" "C1" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__a211oi_4" "Y" '(1.685)
++defineGateSize "sky130_fd_sc_hd__a211oi_4" "B1" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__a21bo_1" "X" '(0.429)
++defineGateSize "sky130_fd_sc_hd__a21bo_1" "B1_N" 0.126
++defineGateSize "sky130_fd_sc_hd__a21bo_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a21bo_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a21bo_2" "B1_N" 0.126
++defineGateSize "sky130_fd_sc_hd__a21bo_2" "A2" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a21bo_2" "X" '(0.462)
++defineGateSize "sky130_fd_sc_hd__a21bo_2" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a21bo_4" "B1_N" 0.2475
++defineGateSize "sky130_fd_sc_hd__a21bo_4" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__a21bo_4" "A1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a21bo_4" "X" '(0.924)
++defineGateSize "sky130_fd_sc_hd__a21boi_0" "B1_N" 0.126
++defineDiodeProtection "sky130_fd_sc_hd__a21boi_0" "Y" '(0.3922)
++defineGateSize "sky130_fd_sc_hd__a21boi_0" "A1" 0.159
++defineGateSize "sky130_fd_sc_hd__a21boi_0" "A2" 0.159
++defineDiodeProtection "sky130_fd_sc_hd__a21boi_1" "Y" '(0.551)
++defineGateSize "sky130_fd_sc_hd__a21boi_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a21boi_1" "B1_N" 0.126
++defineGateSize "sky130_fd_sc_hd__a21boi_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a21boi_2" "B1_N" 0.126
++defineGateSize "sky130_fd_sc_hd__a21boi_2" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__a21boi_2" "A1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a21boi_2" "Y" '(0.6275)
++defineDiodeProtection "sky130_fd_sc_hd__a21boi_4" "Y" '(1.288)
++defineGateSize "sky130_fd_sc_hd__a21boi_4" "A1" 0.99
++defineGateSize "sky130_fd_sc_hd__a21boi_4" "B1_N" 0.2475
++defineGateSize "sky130_fd_sc_hd__a21boi_4" "A2" 0.99
++defineGateSize "sky130_fd_sc_hd__a21o_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a21o_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a21o_1" "B1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a21o_1" "X" '(0.429)
++defineDiodeProtection "sky130_fd_sc_hd__a21o_2" "X" '(0.462)
++defineGateSize "sky130_fd_sc_hd__a21o_2" "B1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a21o_2" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a21o_2" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a21o_4" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__a21o_4" "A1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a21o_4" "X" '(0.924)
++defineGateSize "sky130_fd_sc_hd__a21o_4" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__a21oi_1" "A1" 0.2475
++defineGateSize "sky130_fd_sc_hd__a21oi_1" "B1" 0.2475
++defineDiodeProtection "sky130_fd_sc_hd__a21oi_1" "Y" '(0.447)
++defineGateSize "sky130_fd_sc_hd__a21oi_1" "A2" 0.2475
++defineGateSize "sky130_fd_sc_hd__a21oi_2" "B1" 0.495
++defineGateSize "sky130_fd_sc_hd__a21oi_2" "A2" 0.495
++defineGateSize "sky130_fd_sc_hd__a21oi_2" "A1" 0.495
++defineDiodeProtection "sky130_fd_sc_hd__a21oi_2" "Y" '(0.6275)
++defineGateSize "sky130_fd_sc_hd__a21oi_4" "B1" 0.99
++defineGateSize "sky130_fd_sc_hd__a21oi_4" "A2" 0.99
++defineGateSize "sky130_fd_sc_hd__a21oi_4" "A1" 0.99
++defineDiodeProtection "sky130_fd_sc_hd__a21oi_4" "Y" '(1.288)
+diff --git a/vendor/synopsys/milkyway/sky130_fd_sc_hd.mw.map b/vendor/synopsys/milkyway/sky130_fd_sc_hd.mw.map
+new file mode 100644
+index 0000000..9a620b3
+--- /dev/null
++++ b/vendor/synopsys/milkyway/sky130_fd_sc_hd.mw.map
+@@ -0,0 +1,35 @@
++;# <Milkyway data:datatype> <GDSII data> <datatype>                   #
++;# Basic/routing/connect
++;D	; licon1           drawing         66                   44
++D  1:0 66:44 ; licon1           drawing         66                   44
++D  2:0 67:20 ; li1              drawing         67                   20
++D  3:0 67:44 ; mcon             drawing         67                   44
++D  4:0 68:20 ; met1             drawing         68                   20
++D  5:0 68:44 ; via              drawing         68                   44
++D  6:0 69:20 ; met2             drawing         69                   20
++D  7:0 69:44 ; via2             drawing         69                   44
++D  8:0 70:20 ; met3             drawing         70                   20
++D  9:0 70:44 ; via3             drawing         70                   44
++D 10:0 71:20 ; met4             drawing         71                   20
++D 11:0 71:44 ; via4             drawing         71                   44
++D 12:0 72:20 ; met5             drawing         72                   20
++D 13:0 66:20 ; poly             drawing         67                   20
++D 14:0 65:20 ; diff             drawing         67                   20
++D 15:0 64:20 ; nwell			drawing         67                   20
++;# Text layers
++T  2 67:5 ; li1 	text	67	5
++T  4 68:5 ; met1	text	68	5
++T  6 69:5 ; met2	text	69	5
++T  8 70:5 ; met3	text	70	5
++T 10 71:5 ; met4	text	71	5
++T 12 72:5 ; met5	text	72	5
++T 15 64:5 ; nwell	text 	67  5
++T 16 64:59 ; pwell	text 	67  5
++A 16 122:16 ; pwell pin 122 16
++;# Text & Data layers
++T  2 67:16 ; li1 	text	67	5
++T  4 68:16 ; met1	text	68	5
++T  6 69:16 ; met2	text	69	5
++T  8 70:16 ; met3	text	70	5
++T 10 71:16 ; met4	text	71	5
++T 12 72:16 ; met5	text	72	5
+diff --git a/vendor/synopsys/milkyway/sky130_fd_sc_hd.tf b/vendor/synopsys/milkyway/sky130_fd_sc_hd.tf
+new file mode 100644
+index 0000000..5e4e5d8
+--- /dev/null
++++ b/vendor/synopsys/milkyway/sky130_fd_sc_hd.tf
+@@ -0,0 +1,958 @@
++
++Technology	{
++		name				= "sky130_fd_sc_hd.tf"
++		date				= "Apr 28 2020"
++		dielectric			= 3.45e-05
++		unitTimeName			= "ns"
++		timePrecision			= 1000
++		unitLengthName			= "micron"
++		lengthPrecision			= 1000
++		gridResolution			= 5
++		unitVoltageName			= "V"
++		voltagePrecision		= 1000000
++		unitCurrentName			= "mA"
++		currentPrecision		= 1000000
++		unitPowerName			= "mw"
++		powerPrecision			= 1000000
++		unitResistanceName		= "kohm"
++		resistancePrecision		= 1000000
++		unitCapacitanceName		= "pf"
++		capacitancePrecision		= 1000000
++		unitInductanceName		= "nh"
++		inductancePrecision		= 100
++		minBaselineTemperature		= 25
++		nomBaselineTemperature		= 25
++		maxBaselineTemperature		= 25
++		fatWireViaKeepoutMode		= 1
++}
++
++Color		43 {
++		name				= "43"
++		rgbDefined			= 1
++		redIntensity			= 180
++		greenIntensity			= 175
++		blueIntensity			= 255
++}
++
++Color		47 {
++		name				= "47"
++		rgbDefined			= 1
++		redIntensity			= 180
++		greenIntensity			= 255
++		blueIntensity			= 255
++}
++
++Tile		"unit" {
++		width				= 0.46
++		height				= 2.72
++}
++
++Tile		"unithddbl" {
++		width				= 0.46
++		height				= 5.44
++}
++
++Layer		"licon1" {
++		layerNumber			= 1
++		maskName			= "subcont"
++		isDefaultLayer			= 1
++		visible				= 1
++		selectable			= 1
++		blink				= 0
++		color				= "43"
++		lineStyle			= "solid"
++		pattern				= "rectangleX"
++		pitch				= 0
++		defaultWidth			= 0.17
++		minWidth			= 0.17
++		minSpacing			= 0.19
++}
++
++Layer		"li1" {
++		layerNumber			= 2
++		maskName			= "metal1"
++		isDefaultLayer			= 1
++		visible				= 1
++		selectable			= 1
++		blink				= 0
++		color				= "cyan"
++		lineStyle			= "solid"
++		pattern				= "slash"
++		pitch				= 0.46
++		defaultWidth			= 0.17
++		minWidth			= 0.17
++		minSpacing			= 0.17
++		unitMinResistance		= 0.0122
++		unitNomResistance		= 0.0122
++		unitMaxResistance		= 0.0122
++		unitMinThickness		= 0.1
++		unitNomThickness		= 0.1
++		unitMaxThickness		= 0.1
++		fatTblDimension			= 2
++		fatTblThreshold			= (0,3.001) 
++		fatTblParallelLengthDimension	= 1
++		fatTblParallelLength		= (0) 
++		fatTblSpacing			= (0.17, 0.34)  
++		minArea				= 0.0561
++}
++
++Layer		"mcon" {
++		layerNumber			= 3
++		maskName			= "via1"
++		isDefaultLayer			= 1
++		visible				= 1
++		selectable			= 1
++		blink				= 0
++		color				= "43"
++		lineStyle			= "solid"
++		pattern				= "rectangleX"
++		pitch				= 0
++		defaultWidth			= 0.17
++		minWidth			= 0.17
++		minSpacing			= 0.19
++}
++
++Layer		"met1" {
++		layerNumber			= 4
++		maskName			= "metal2"
++		isDefaultLayer			= 1
++		visible				= 1
++		selectable			= 1
++		blink				= 0
++		color				= "blue"
++		lineStyle			= "solid"
++		pattern				= "dot"
++		pitch				= 0.34
++		defaultWidth			= 0.14
++		minWidth			= 0.14
++		minSpacing			= 0.14
++		unitMinResistance		= 0.000125
++		unitNomResistance		= 0.000125
++		unitMaxResistance		= 0.000125
++		unitMinCapacitance		= 5.1e-05
++		unitNomCapacitance		= 5.1e-05
++		unitMaxCapacitance		= 5.1e-05
++		unitMinThickness		= 0.35
++		unitNomThickness		= 0.35
++		unitMaxThickness		= 0.35
++		fatTblDimension			= 2
++		fatTblThreshold			= (0,3.001)
++		fatTblParallelLengthDimension	= 1
++		fatTblParallelLength		= (0)
++		fatTblSpacing			= (0.14, 0.28)
++		minArea				= 0.083
++}
++
++Layer		"via" {
++		layerNumber			= 5
++		maskName			= "via2"
++		isDefaultLayer			= 1
++		visible				= 1
++		selectable			= 1
++		blink				= 0
++		color				= "blue"
++		lineStyle			= "solid"
++		pattern				= "blank"
++		pitch				= 0
++		defaultWidth			= 0.15
++		minWidth			= 0.15
++		minSpacing			= 0.17
++}
++
++Layer		"met2" {
++		layerNumber			= 6
++		maskName			= "metal3"
++		isDefaultLayer			= 1
++		visible				= 1
++		selectable			= 1
++		blink				= 0
++		color				= "green"
++		lineStyle			= "solid"
++		pattern				= "dot"
++		pitch				= 0.46
++		defaultWidth			= 0.14
++		minWidth			= 0.14
++		minSpacing			= 0.14
++		unitMinResistance		= 0.000125
++		unitNomResistance		= 0.000125
++		unitMaxResistance		= 0.000125
++		unitMinCapacitance		= 1.8e-05
++		unitNomCapacitance		= 1.8e-05
++		unitMaxCapacitance		= 1.8e-05
++		unitMinThickness		= 0.35
++		unitNomThickness		= 0.35
++		unitMaxThickness		= 0.35
++		fatTblDimension			= 2
++		fatTblThreshold			= (0,3.001)
++		fatTblParallelLengthDimension	= 1
++		fatTblParallelLength		= (0)
++		fatTblSpacing			= (0.14, 0.28) 
++		minArea				= 0.0676
++}
++
++Layer		"via2" {
++		layerNumber			= 7
++		maskName			= "via3"
++		isDefaultLayer			= 1
++		visible				= 1
++		selectable			= 1
++		blink				= 0
++		color				= "yellow"
++		lineStyle			= "solid"
++		pattern				= "blank"
++		pitch				= 0
++		defaultWidth			= 0.2
++		minWidth			= 0.2
++		minSpacing			= 0.2
++}
++
++Layer		"met3" {
++		layerNumber			= 8
++		maskName			= "metal4"
++		isDefaultLayer			= 1
++		visible				= 1
++		selectable			= 1
++		blink				= 0
++		color				= "purple"
++		lineStyle			= "solid"
++		pattern				= "dot"
++		pitch				= 0.68
++		defaultWidth			= 0.3
++		minWidth			= 0.3
++		minSpacing			= 0.3
++		unitMinResistance		= 4.7e-05
++		unitNomResistance		= 4.7e-05
++		unitMaxResistance		= 4.7e-05
++		unitMinCapacitance		= 2.5e-05
++		unitNomCapacitance		= 2.5e-05
++		unitMaxCapacitance		= 2.5e-05
++		unitMinThickness		= 0.8
++		unitNomThickness		= 0.8
++		unitMaxThickness		= 0.8
++		fatTblDimension			= 2
++		fatTblThreshold			= (0,3.001)
++		fatTblParallelLengthDimension	= 1
++		fatTblParallelLength		= (0)
++		fatTblSpacing			= (0.3, 0.4) 
++		minArea				= 0.24
++}
++
++Layer		"via3" {
++		layerNumber			= 9
++		maskName			= "via4"
++		isDefaultLayer			= 1
++		visible				= 1
++		selectable			= 1
++		blink				= 0
++		color				= "white"
++		lineStyle			= "solid"
++		pattern				= "rectangleX"
++		pitch				= 0
++		defaultWidth			= 0.2
++		minWidth			= 0.2
++		minSpacing			= 0.2
++}
++
++Layer		"met4" {
++		layerNumber			= 10
++		maskName			= "metal5"
++		isDefaultLayer			= 1
++		visible				= 1
++		selectable			= 1
++		blink				= 0
++		color				= "red"
++		lineStyle			= "solid"
++		pattern				= "dot"
++		pitch				= 0.92
++		defaultWidth			= 0.3
++		minWidth			= 0.3
++		minSpacing			= 0.3
++		unitMinResistance		= 4.7e-05
++		unitNomResistance		= 4.7e-05
++		unitMaxResistance		= 4.7e-05
++		unitMinCapacitance		= 1.7e-05
++		unitNomCapacitance		= 1.7e-05
++		unitMaxCapacitance		= 1.7e-05
++		unitMinThickness		= 0.8
++		unitNomThickness		= 0.8
++		unitMaxThickness		= 0.8
++		fatTblDimension			= 2
++		fatTblThreshold			= (0,3.001)
++		fatTblParallelLengthDimension	= 1
++		fatTblParallelLength		= (0)
++		fatTblSpacing			= (0.3, 0.4) 
++		minArea				= 0.24
++}
++
++Layer		"via4" {
++		layerNumber			= 11
++		maskName			= "via5"
++		isDefaultLayer			= 1
++		visible				= 1
++		selectable			= 1
++		blink				= 0
++		color				= "47"
++		lineStyle			= "solid"
++		pattern				= "rectangleX"
++		pitch				= 0
++		defaultWidth			= 0.8
++		minWidth			= 0.8
++		minSpacing			= 0.8
++}
++
++Layer		"met5" {
++		layerNumber			= 12
++		maskName			= "metal6"
++		isDefaultLayer			= 1
++		visible				= 1
++		selectable			= 1
++		blink				= 0
++		color				= "aqua"
++		lineStyle			= "solid"
++		pattern				= "dot"
++		pitch				= 3.4
++		defaultWidth			= 1.6
++		minWidth			= 1.6
++		minSpacing			= 1.6
++		unitMinResistance		= 2.9e-05
++		unitNomResistance		= 2.9e-05
++		unitMaxResistance		= 2.9e-05
++		unitMinCapacitance		= 1.3e-05
++		unitNomCapacitance		= 1.3e-05
++		unitMaxCapacitance		= 1.3e-05
++		unitMinThickness		= 1.2
++		unitNomThickness		= 1.2
++		unitMaxThickness		= 1.2
++		fatTblDimension			= 2
++		fatTblThreshold			= (0,3.001)
++		fatTblParallelLengthDimension	= 1
++		fatTblParallelLength		= (0)
++		fatTblSpacing			= (1.6, 3.2) 
++		minArea				= 4
++}
++
++Layer		"fieldpoly" {
++		layerNumber			= 13
++		maskName			= "poly"
++		isDefaultLayer			= 1
++		visible				= 1
++		selectable			= 1
++		blink				= 0
++		color				= "red"
++		lineStyle			= "solid"
++		pattern				= "dot"
++		pitch				= 0.46
++		defaultWidth			= 0.14
++		minWidth			= 0.14
++		minSpacing			= 0.14
++}
++
++
++Layer		"diff" {
++		layerNumber			= 14 
++		maskName			= "diffusion"
++		isDefaultLayer			= 1
++		visible				= 1
++		selectable			= 1
++		blink				= 0
++		color				= "40"
++		lineStyle			= "dash"
++		pattern				= "dot"
++		pitch				= 0
++}
++
++
++Layer		"nwell" {
++		layerNumber			= 15 
++		maskName			= "nwell"
++		isDefaultLayer			= 1
++		visible				= 1
++		selectable			= 1
++		blink				= 0
++		color				= "white"
++		lineStyle			= "dash"
++		pattern				= "dot"
++		pitch				= 0
++}
++
++Layer		"pwell" {
++		layerNumber			= 16 
++		maskName			= "pwell"
++		isDefaultLayer			= 1
++		visible				= 1
++		selectable			= 1
++		blink				= 0
++		color				= "brown"
++		lineStyle			= "dash"
++		pattern				= "dot"
++		pitch				= 0
++}
++
++ContactCode	"L1M1_PR" {
++		contactCodeNumber		= 1
++		cutLayer			= "mcon"
++		lowerLayer			= "li1"
++		upperLayer			= "met1"
++		isDefaultContact		= 1
++		cutWidth			= 0.17
++		cutHeight			= 0.17
++		upperLayerEncWidth		= 0.06
++		upperLayerEncHeight		= 0.03
++		lowerLayerEncWidth		= 0
++		lowerLayerEncHeight		= 0
++		minCutSpacing			= 0.19
++}
++
++ContactCode	"L1M1_PR_R" {
++		contactCodeNumber		= 2
++		cutLayer			= "mcon"
++		lowerLayer			= "li1"
++		upperLayer			= "met1"
++		contactSourceType		= 5
++		isFatContact			= 1
++		cutWidth			= 0.17
++		cutHeight			= 0.17
++		upperLayerEncWidth		= 0.03
++		upperLayerEncHeight		= 0.06
++		lowerLayerEncWidth		= 0
++		lowerLayerEncHeight		= 0
++		minCutSpacing			= 0.19
++}
++
++ContactCode	"L1M1_PR_M" {
++		contactCodeNumber		= 3
++		cutLayer			= "mcon"
++		lowerLayer			= "li1"
++		upperLayer			= "met1"
++		contactSourceType		= 5
++		isFatContact			= 1
++		cutWidth			= 0.17
++		cutHeight			= 0.17
++		upperLayerEncWidth		= 0.03
++		upperLayerEncHeight		= 0.06
++		lowerLayerEncWidth		= 0
++		lowerLayerEncHeight		= 0
++		minCutSpacing			= 0.19
++}
++
++ContactCode	"L1M1_PR_MR" {
++		contactCodeNumber		= 4
++		cutLayer			= "mcon"
++		lowerLayer			= "li1"
++		upperLayer			= "met1"
++		contactSourceType		= 5
++		isFatContact			= 1
++		cutWidth			= 0.17
++		cutHeight			= 0.17
++		upperLayerEncWidth		= 0.06
++		upperLayerEncHeight		= 0.03
++		lowerLayerEncWidth		= 0
++		lowerLayerEncHeight		= 0
++		minCutSpacing			= 0.19
++}
++
++ContactCode	"L1M1_PR_C" {
++		contactCodeNumber		= 5
++		cutLayer			= "mcon"
++		lowerLayer			= "li1"
++		upperLayer			= "met1"
++		isDefaultContact		= 1
++		cutWidth			= 0.17
++		cutHeight			= 0.17
++		upperLayerEncWidth		= 0.06
++		upperLayerEncHeight		= 0.06
++		lowerLayerEncWidth		= 0
++		lowerLayerEncHeight		= 0
++		minCutSpacing			= 0.19
++}
++
++ContactCode	"M1M2_PR" {
++		contactCodeNumber		= 6
++		cutLayer			= "via"
++		lowerLayer			= "met1"
++		upperLayer			= "met2"
++		isDefaultContact		= 1
++		cutWidth			= 0.15
++		cutHeight			= 0.15
++		upperLayerEncWidth		= 0.055
++		upperLayerEncHeight		= 0.085
++		lowerLayerEncWidth		= 0.085
++		lowerLayerEncHeight		= 0.055
++		minCutSpacing			= 0.17
++}
++
++ContactCode	"M1M2_PR_Enc" {
++		contactCodeNumber		= 7
++		cutLayer			= "via"
++		lowerLayer			= "met1"
++		upperLayer			= "met2"
++		contactSourceType		= 5
++		isFatContact			= 1
++		cutWidth			= 0.15
++		cutHeight			= 0.15
++		upperLayerEncWidth		= 0.085
++		upperLayerEncHeight		= 0.055
++		lowerLayerEncWidth		= 0.085
++		lowerLayerEncHeight		= 0.055
++		minCutSpacing			= 0.17
++}
++
++ContactCode	"M1M2_PR_R" {
++		contactCodeNumber		= 8
++		cutLayer			= "via"
++		lowerLayer			= "met1"
++		upperLayer			= "met2"
++		contactSourceType		= 5
++		isFatContact			= 1
++		cutWidth			= 0.15
++		cutHeight			= 0.15
++		upperLayerEncWidth		= 0.085
++		upperLayerEncHeight		= 0.055
++		lowerLayerEncWidth		= 0.055
++		lowerLayerEncHeight		= 0.085
++		minCutSpacing			= 0.17
++}
++
++ContactCode	"M1M2_PR_R_Enc" {
++		contactCodeNumber		= 9
++		cutLayer			= "via"
++		lowerLayer			= "met1"
++		upperLayer			= "met2"
++		contactSourceType		= 5
++		isFatContact			= 1
++		cutWidth			= 0.15
++		cutHeight			= 0.15
++		upperLayerEncWidth		= 0.055
++		upperLayerEncHeight		= 0.085
++		lowerLayerEncWidth		= 0.055
++		lowerLayerEncHeight		= 0.085
++		minCutSpacing			= 0.17
++}
++
++ContactCode	"M1M2_PR_M" {
++		contactCodeNumber		= 10
++		cutLayer			= "via"
++		lowerLayer			= "met1"
++		upperLayer			= "met2"
++		contactSourceType		= 5
++		isFatContact			= 1
++		cutWidth			= 0.15
++		cutHeight			= 0.15
++		upperLayerEncWidth		= 0.085
++		upperLayerEncHeight		= 0.055
++		lowerLayerEncWidth		= 0.085
++		lowerLayerEncHeight		= 0.055
++		minCutSpacing			= 0.17
++}
++
++ContactCode	"M1M2_PR_M_Enc" {
++		contactCodeNumber		= 11
++		cutLayer			= "via"
++		lowerLayer			= "met1"
++		upperLayer			= "met2"
++		contactSourceType		= 5
++		isFatContact			= 1
++		cutWidth			= 0.15
++		cutHeight			= 0.15
++		upperLayerEncWidth		= 0.055
++		upperLayerEncHeight		= 0.085
++		lowerLayerEncWidth		= 0.085
++		lowerLayerEncHeight		= 0.055
++		minCutSpacing			= 0.17
++}
++
++ContactCode	"M1M2_PR_MR" {
++		contactCodeNumber		= 12
++		cutLayer			= "via"
++		lowerLayer			= "met1"
++		upperLayer			= "met2"
++		contactSourceType		= 5
++		isFatContact			= 1
++		cutWidth			= 0.15
++		cutHeight			= 0.15
++		upperLayerEncWidth		= 0.055
++		upperLayerEncHeight		= 0.085
++		lowerLayerEncWidth		= 0.055
++		lowerLayerEncHeight		= 0.085
++		minCutSpacing			= 0.17
++}
++
++ContactCode	"M1M2_PR_MR_Enc" {
++		contactCodeNumber		= 13
++		cutLayer			= "via"
++		lowerLayer			= "met1"
++		upperLayer			= "met2"
++		contactSourceType		= 5
++		isFatContact			= 1
++		cutWidth			= 0.15
++		cutHeight			= 0.15
++		upperLayerEncWidth		= 0.085
++		upperLayerEncHeight		= 0.055
++		lowerLayerEncWidth		= 0.055
++		lowerLayerEncHeight		= 0.085
++		minCutSpacing			= 0.17
++}
++
++ContactCode	"M1M2_PR_C" {
++		contactCodeNumber		= 14
++		cutLayer			= "via"
++		lowerLayer			= "met1"
++		upperLayer			= "met2"
++		isDefaultContact		= 1
++		cutWidth			= 0.15
++		cutHeight			= 0.15
++		upperLayerEncWidth		= 0.085
++		upperLayerEncHeight		= 0.085
++		lowerLayerEncWidth		= 0.085
++		lowerLayerEncHeight		= 0.085
++		minCutSpacing			= 0.17
++}
++
++ContactCode	"M2M3_PR" {
++		contactCodeNumber		= 15
++		cutLayer			= "via2"
++		lowerLayer			= "met2"
++		upperLayer			= "met3"
++		isDefaultContact		= 1
++		cutWidth			= 0.2
++		cutHeight			= 0.2
++		upperLayerEncWidth		= 0.065
++		upperLayerEncHeight		= 0.065
++		lowerLayerEncWidth		= 0.04
++		lowerLayerEncHeight		= 0.085
++		minCutSpacing			= 0.2
++}
++
++ContactCode	"M2M3_PR_R" {
++		contactCodeNumber		= 16
++		cutLayer			= "via2"
++		lowerLayer			= "met2"
++		upperLayer			= "met3"
++		contactSourceType		= 5
++		isFatContact			= 1
++		cutWidth			= 0.2
++		cutHeight			= 0.2
++		upperLayerEncWidth		= 0.065
++		upperLayerEncHeight		= 0.065
++		lowerLayerEncWidth		= 0.085
++		lowerLayerEncHeight		= 0.04
++		minCutSpacing			= 0.2
++}
++
++ContactCode	"M2M3_PR_M" {
++		contactCodeNumber		= 17
++		cutLayer			= "via2"
++		lowerLayer			= "met2"
++		upperLayer			= "met3"
++		contactSourceType		= 5
++		isFatContact			= 1
++		cutWidth			= 0.2
++		cutHeight			= 0.2
++		upperLayerEncWidth		= 0.065
++		upperLayerEncHeight		= 0.065
++		lowerLayerEncWidth		= 0.04
++		lowerLayerEncHeight		= 0.085
++		minCutSpacing			= 0.2
++}
++
++ContactCode	"M2M3_PR_MR" {
++		contactCodeNumber		= 18
++		cutLayer			= "via2"
++		lowerLayer			= "met2"
++		upperLayer			= "met3"
++		contactSourceType		= 5
++		isFatContact			= 1
++		cutWidth			= 0.2
++		cutHeight			= 0.2
++		upperLayerEncWidth		= 0.065
++		upperLayerEncHeight		= 0.065
++		lowerLayerEncWidth		= 0.085
++		lowerLayerEncHeight		= 0.04
++		minCutSpacing			= 0.2
++}
++
++ContactCode	"M2M3_PR_C" {
++		contactCodeNumber		= 19
++		cutLayer			= "via2"
++		lowerLayer			= "met2"
++		upperLayer			= "met3"
++		isDefaultContact		= 1
++		cutWidth			= 0.2
++		cutHeight			= 0.2
++		upperLayerEncWidth		= 0.065
++		upperLayerEncHeight		= 0.065
++		lowerLayerEncWidth		= 0.085
++		lowerLayerEncHeight		= 0.085
++		minCutSpacing			= 0.2
++}
++
++ContactCode	"M3M4_PR" {
++		contactCodeNumber		= 20
++		cutLayer			= "via3"
++		lowerLayer			= "met3"
++		upperLayer			= "met4"
++		isDefaultContact		= 1
++		cutWidth			= 0.2
++		cutHeight			= 0.2
++		upperLayerEncWidth		= 0.065
++		upperLayerEncHeight		= 0.065
++		lowerLayerEncWidth		= 0.09
++		lowerLayerEncHeight		= 0.06
++		minCutSpacing			= 0.2
++}
++
++ContactCode	"M3M4_PR_R" {
++		contactCodeNumber		= 21
++		cutLayer			= "via3"
++		lowerLayer			= "met3"
++		upperLayer			= "met4"
++		contactSourceType		= 5
++		isFatContact			= 1
++		cutWidth			= 0.2
++		cutHeight			= 0.2
++		upperLayerEncWidth		= 0.065
++		upperLayerEncHeight		= 0.065
++		lowerLayerEncWidth		= 0.06
++		lowerLayerEncHeight		= 0.09
++		minCutSpacing			= 0.2
++}
++
++ContactCode	"M3M4_PR_M" {
++		contactCodeNumber		= 22
++		cutLayer			= "via3"
++		lowerLayer			= "met3"
++		upperLayer			= "met4"
++		contactSourceType		= 5
++		isFatContact			= 1
++		cutWidth			= 0.2
++		cutHeight			= 0.2
++		upperLayerEncWidth		= 0.065
++		upperLayerEncHeight		= 0.065
++		lowerLayerEncWidth		= 0.09
++		lowerLayerEncHeight		= 0.06
++		minCutSpacing			= 0.2
++}
++
++ContactCode	"M3M4_PR_MR" {
++		contactCodeNumber		= 23
++		cutLayer			= "via3"
++		lowerLayer			= "met3"
++		upperLayer			= "met4"
++		contactSourceType		= 5
++		isFatContact			= 1
++		cutWidth			= 0.2
++		cutHeight			= 0.2
++		upperLayerEncWidth		= 0.065
++		upperLayerEncHeight		= 0.065
++		lowerLayerEncWidth		= 0.06
++		lowerLayerEncHeight		= 0.09
++		minCutSpacing			= 0.2
++}
++
++ContactCode	"M3M4_PR_C" {
++		contactCodeNumber		= 24
++		cutLayer			= "via3"
++		lowerLayer			= "met3"
++		upperLayer			= "met4"
++		isDefaultContact		= 1
++		cutWidth			= 0.2
++		cutHeight			= 0.2
++		upperLayerEncWidth		= 0.065
++		upperLayerEncHeight		= 0.065
++		lowerLayerEncWidth		= 0.09
++		lowerLayerEncHeight		= 0.09
++		minCutSpacing			= 0.2
++}
++
++ContactCode	"M4M5_PR" {
++		contactCodeNumber		= 25
++		cutLayer			= "via4"
++		lowerLayer			= "met4"
++		upperLayer			= "met5"
++		isDefaultContact		= 1
++		cutWidth			= 0.8
++		cutHeight			= 0.8
++		upperLayerEncWidth		= 0.31
++		upperLayerEncHeight		= 0.31
++		lowerLayerEncWidth		= 0.19
++		lowerLayerEncHeight		= 0.19
++		minCutSpacing			= 0.8
++}
++
++ContactCode	"M4M5_PR_R" {
++		contactCodeNumber		= 26
++		cutLayer			= "via4"
++		lowerLayer			= "met4"
++		upperLayer			= "met5"
++		contactSourceType		= 5
++		isFatContact			= 1
++		cutWidth			= 0.8
++		cutHeight			= 0.8
++		upperLayerEncWidth		= 0.31
++		upperLayerEncHeight		= 0.31
++		lowerLayerEncWidth		= 0.19
++		lowerLayerEncHeight		= 0.19
++		minCutSpacing			= 0.8
++}
++
++ContactCode	"M4M5_PR_M" {
++		contactCodeNumber		= 27
++		cutLayer			= "via4"
++		lowerLayer			= "met4"
++		upperLayer			= "met5"
++		contactSourceType		= 5
++		isFatContact			= 1
++		cutWidth			= 0.8
++		cutHeight			= 0.8
++		upperLayerEncWidth		= 0.31
++		upperLayerEncHeight		= 0.31
++		lowerLayerEncWidth		= 0.19
++		lowerLayerEncHeight		= 0.19
++		minCutSpacing			= 0.8
++}
++
++ContactCode	"M4M5_PR_MR" {
++		contactCodeNumber		= 28
++		cutLayer			= "via4"
++		lowerLayer			= "met4"
++		upperLayer			= "met5"
++		contactSourceType		= 5
++		isFatContact			= 1
++		cutWidth			= 0.8
++		cutHeight			= 0.8
++		upperLayerEncWidth		= 0.31
++		upperLayerEncHeight		= 0.31
++		lowerLayerEncWidth		= 0.19
++		lowerLayerEncHeight		= 0.19
++		minCutSpacing			= 0.8
++}
++
++ContactCode	"M4M5_PR_C" {
++		contactCodeNumber		= 29
++		cutLayer			= "via4"
++		lowerLayer			= "met4"
++		upperLayer			= "met5"
++		contactSourceType		= 5
++		isFatContact			= 1
++		cutWidth			= 0.8
++		cutHeight			= 0.8
++		upperLayerEncWidth		= 0.31
++		upperLayerEncHeight		= 0.31
++		lowerLayerEncWidth		= 0.19
++		lowerLayerEncHeight		= 0.19
++		minCutSpacing			= 0.8
++}
++
++DesignRule	{
++		layer1				= "via4"
++		layer2				= "met4"
++		minSpacing			= 0
++		minEnclosure			= 0
++		stackViaCenterSpacingThreshold	= 0
++}
++
++DesignRule	{
++		layer1				= "via4"
++		layer2				= "met5"
++		minSpacing			= 0
++		minEnclosure			= 0
++		stackViaCenterSpacingThreshold	= 0
++}
++
++DesignRule	{
++		layer1				= "via3"
++		layer2				= "met3"
++		minSpacing			= 0
++		minEnclosure			= 0
++		stackViaCenterSpacingThreshold	= 0
++}
++
++DesignRule	{
++		layer1				= "via3"
++		layer2				= "met4"
++		minSpacing			= 0
++		minEnclosure			= 0
++		stackViaCenterSpacingThreshold	= 0
++}
++
++DesignRule	{
++		layer1				= "via2"
++		layer2				= "met2"
++		minSpacing			= 0
++		minEnclosure			= 0
++		stackViaCenterSpacingThreshold	= 0
++}
++
++DesignRule	{
++		layer1				= "via2"
++		layer2				= "met3"
++		minSpacing			= 0
++		minEnclosure			= 0
++		stackViaCenterSpacingThreshold	= 0
++}
++
++DesignRule	{
++		layer1				= "via"
++		layer2				= "met1"
++		minSpacing			= 0
++		minEnclosure			= 0
++		stackViaCenterSpacingThreshold	= 0
++}
++
++DesignRule	{
++		layer1				= "via"
++		layer2				= "met2"
++		minSpacing			= 0
++		minEnclosure			= 0
++		stackViaCenterSpacingThreshold	= 0
++}
++
++DesignRule	{
++		layer1				= "mcon"
++		layer2				= "li1"
++		minSpacing			= 0
++		minEnclosure			= 0
++		stackViaCenterSpacingThreshold	= 0
++}
++
++DesignRule	{
++		layer1				= "mcon"
++		layer2				= "met1"
++		minSpacing			= 0
++		minEnclosure			= 0
++		stackViaCenterSpacingThreshold	= 0
++}
++
++
++PRRule {
++	rowSpacingTopTop = 0
++	rowSpacingBotBot = 0.92
++	abuttableTopTop = 1
++	abuttableBotBot = 1
++	rowSpacingTopBot = 0.17
++	abuttableTopBot = 0
++}
++
++DensityRule	{
++		layer				= "met1"
++		windowSize			= 700
++		maxDensity			= 70
++}
++
++DensityRule	{
++		layer				= "met2"
++		windowSize			= 700
++		maxDensity			= 70
++}
++
++DensityRule	{
++		layer				= "met3"
++		windowSize			= 700
++		maxDensity			= 70
++}
++
++DensityRule	{
++		layer				= "met4"
++		windowSize			= 700
++		maxDensity			= 70
++}
+diff --git a/vendor/synopsys/milkyway/skywater130.mw2itf.map b/vendor/synopsys/milkyway/skywater130.mw2itf.map
+new file mode 100644
+index 0000000..22d450e
+--- /dev/null
++++ b/vendor/synopsys/milkyway/skywater130.mw2itf.map
+@@ -0,0 +1,14 @@
++conducting_layers
++	metal1	li1		
++	metal2	met1 	
++	metal3	met2 	
++	metal4	met3 	
++	metal5	met4 	
++	metal6	met5 	
++via_layers
++	licon1	licon
++	mcon	mcon	
++	via		via	
++	via2	via2	
++	via3	via3	
++	via4	via4	
+diff --git a/vendor/synopsys/milkyway/skywater130_fd_sc_hd.map b/vendor/synopsys/milkyway/skywater130_fd_sc_hd.map
+new file mode 100644
+index 0000000..3f8c585
+--- /dev/null
++++ b/vendor/synopsys/milkyway/skywater130_fd_sc_hd.map
+@@ -0,0 +1,182 @@
++#Layer_Number     Layer_Purpose   Layer_Stream_Number  Datatype_Stream_Number
++ diff             drawing         65                   20
++ diff             text            65                   20
++ tap              drawing         65                   44
++ nwell            drawing         64                   20
++ dnwell           drawing         64                   18
++ pwbm             drawing         19                   44
++ pwde             drawing         124                  20
++ hvtr             drawing         18                   20
++ hvtp             drawing         78                   44
++ ldntm            drawing         11                   44
++ hvi              drawing         75                   20
++ tunm             drawing         80                   20
++ lvtn             drawing         125                  44
++ poly             drawing         66                   20
++ poly             text            66                   20
++ hvntm            drawing         125                  20
++ nsdm             drawing         93                   44
++ psdm             drawing         94                   20
++ rpm              drawing         86                   20
++ urpm             drawing         79                   20
++ npc              drawing         95                   20
++ licon1           drawing         66                   44
++ li1              drawing         67                   20
++ li1              text            67                   20
++ mcon             drawing         67                   44
++ met1             drawing         68                   20
++ met1             text            68                   20
++ via              drawing         68                   44
++ met2             drawing         69                   20
++ met2             text            69                   20
++ via2             drawing         69                   44
++ met3             drawing         70                   20
++ met3             text            70                   20
++ via3             drawing         70                   44
++ met4             drawing         71                   20
++ met4             text            71                   20
++ via4             drawing         71                   44
++ met5             drawing         72                   20
++ met5             text            72                   20
++ pad              drawing         76                   20
++ pad              text            76                   20
++ nsm              drawing         61                   20
++ capm             drawing         89                   44
++ cap2m            drawing         97                   44
++ vhvi             drawing         74                   21
++ uhvi             drawing         74                   22
++ npn              drawing         82                   20
++ inductor         drawing         82                   24
++ capacitor        drawing         82                   64
++ pnp              drawing         82                   44
++#LVS prune        drawing         84                   44
++ ncm              drawing         92                   44
++ padCenter        drawing         81                   20
++ target           drawing         76                   44
++ areaid.sl        identifier      81                   1
++ areaid.ce        identifier      81                   2
++ areaid.fe        identifier      81                   3
++ areaid.sc        identifier      81                   4
++ areaid.sf        identifier      81                   6
++ areaid.sl        identifier      81                   7
++ areaid.sr        identifier      81                   8
++ areaid.mt        identifier      81                   10
++ areaid.dt        identifier      81                   11
++ areaid.ft        identifier      81                   12
++ areaid.ww        identifier      81                   13
++ areaid.ld        identifier      81                   14
++ areaid.ns        identifier      81                   15
++ areaid.ij        identifier      81                   17
++ areaid.zr        identifier      81                   18
++ areaid.ed        identifier      81                   19
++ areaid.de        identifier      81                   23
++ areaid.rd        identifier      81                   24
++ areaid.dn        identifier      81                   50
++ areaid.cr        identifier      81                   51
++ areaid.cd        identifier      81                   52
++ areaid.st        identifier      81                   53
++ areaid.op        identifier      81                   54
++ areaid.en        identifier      81                   57
++ areaid.en20      identifier      81                   58
++ areaid.le        identifier      81                   60
++ areaid.hl        identifier      81                   63
++ areaid.sd        identifier      81                   70
++ areaid.po        identifier      81                   81
++ areaid.it        identifier      81                   84
++ areaid.et        identifier      81                   101
++ areaid.lvt       identifier      81                   108
++ areaid.re        identifier      81                   125
++ fom              dummy           22                   23
++ poly             gate            66                   9
++ poly             model           66                   83
++ poly             resistor        66                   13
++ diff             resistor        65                   13
++ pwell            resistor        64                   13
++ li1              resistor        67                   13
++#diff             high voltage    65                   8
++ met4             fuse            71                   17
++ inductor         terminal1       82                   26
++ inductor         terminal2       82                   27
++ inductor         terminal3       82                   28
++ li1              block           67                   10
++ met1             block           68                   10
++ met2             block           69                   10
++ met3             block           70                   10
++ met4             block           71                   10
++ met5             block           72                   10
++ prBndry          boundary        235                  4
++ diff             boundary        65                   4
++ tap              boundary        65                   60
++ mcon             boundary        67                   60
++ poly             boundary        66                   4
++ via              boundary        68                   60
++ via2             boundary        69                   60
++ via3             boundary        70                   60
++ via4             boundary        71                   60
++ li1              label           67                   5
++ met1             label           68                   5
++ met2             label           69                   5
++ met3             label           70                   5
++ met4             label           71                   5
++ met5             label           72                   5
++ poly             label           66                   5
++ diff             label           65                   6
++ pwell            label           64                   59
++ pwelliso         label           44                   5
++ pad              label           76                   5
++ tap              label           65                   5
++ nwell            label           64                   5
++ inductor         label           82                   25
++ text             label           83                   44
++ li1              net             67                   23
++ met1             net             68                   23
++ met2             net             69                   23
++ met3             net             70                   23
++ met4             net             71                   23
++ met5             net             72                   23
++ poly             net             66                   23
++ diff             net             65                   23
++ li1              pin             67                   16
++ met1             pin             68                   16
++ met2             pin             69                   16
++ met3             pin             70                   16
++ met4             pin             71                   16
++ met5             pin             72                   16
++ poly             pin             66                   16
++ diff             pin             65                   16
++ nwell            pin             64                   16
++ pad              pin             76                   16
++ pwell            pin             122                  16
++ pwelliso         pin             44                   16
++ nwell            pin             64                   0
++ poly             pin             66                   0
++ li1              pin             67                   0
++ met1             pin             68                   0
++ met2             pin             69                   0
++ met3             pin             70                   0
++ met4             pin             71                   0
++ met5             pin             72                   0
++ pad              pin             76                   0
++ pwell            pin             122                  0
++ diff             cut             65                   14
++ poly             cut             66                   14
++ li1              cut             67                   14
++ met1             cut             68                   14
++ met2             cut             69                   14
++ met3             cut             70                   14
++ met4             cut             71                   14
++ met5             cut             72                   14
++ met5             probe           72                   25
++ met4             probe           71                   25
++ met3             probe           70                   25
++ met2             probe           69                   25
++ met1             probe           68                   25
++ li1              probe           67                   25
++ poly             probe           66                   25
++ poly             short           66                   15
++ li1              short           67                   15
++ met1             short           68                   15
++ met2             short           69                   15
++ met3             short           70                   15
++ met4             short           71                   15
++ met5             short           72                   15
+diff --git a/vendor/synopsys/scripts/fix_well_pg_type.py b/vendor/synopsys/scripts/fix_well_pg_type.py
+new file mode 100755
+index 0000000..51ad002
+--- /dev/null
++++ b/vendor/synopsys/scripts/fix_well_pg_type.py
+@@ -0,0 +1,35 @@
++#!/usr/bin/env python
++import re
++import sys
++
++text = sys.stdin.read()
++
++def fix(text, pg_pin, pg_type):
++    find    = r'(pg_pin \(\"' + pg_pin + r'\"\) \{\s*\n(\s+)pg_type : \")primary_\w+(\";)\n'
++    replace = r'\1' + pg_type + r'\3' + '\n' + r'\2physical_connection : device_layer;\n'
++    return re.sub(find, replace, text)
++
++def fix2(text):
++    find = r'(pin \(\"M0\"\) \{\n\s+direction : \"internal\";\n\s+internal_node : \"M0\";\n\s+related_ground_pin : ")VNB(";)\n'
++    replace = r'\1VGND\2\n'
++    return re.sub(find, replace, text)
++
++def fix3(text, pg_pin, pg_type):
++    find    = r'(pg_pin \(\"' + pg_pin + r'\"\) \{\s*\n(\s+)pg_type : \")backup_\w+(\";)\n'
++    replace = r'\1' + pg_type + r'\3' + '\n' + r'\2physical_connection : device_layer;\n'
++    return re.sub(find, replace, text)
++
++def fix4(text, cell_name , pg_pin, pg_type):
++    find    = r'(cell \(\"' + cell_name + r'.*\"\) \{\s*\n)'
++    replace = r'\1\t\tpg_pin ("' + pg_pin + r'") {\n\t\t\tpg_type : "' + pg_type + r'";\n\t\t\tphysical_connection : "device_layer";\n\t\t\tvoltage_name : "'+ pg_pin+r'";\n\t\t}\n'
++    return re.sub(find, replace, text)
++
++text = fix(text, 'VNB', 'nwell')
++text = fix(text, 'VPB', 'pwell')
++text = fix2(text)
++text = fix3(text, 'VNB', 'nwell')
++text = fix3(text, 'VPB', 'pwell')
++text = fix4(text, 'sky130_fd_sc_hd__lpflow_lsbuf_lh_hl_isowell_tap' ,'VNB', 'nwell')
++text = fix4(text, 'sky130_fd_sc_hd__lpflow_lsbuf_lh_isowell_tap' ,'VNB', 'nwell')
++
++print(text)
+diff --git a/vendor/synopsys/scripts/lc.tcl b/vendor/synopsys/scripts/lc.tcl
+new file mode 100644
+index 0000000..35af345
+--- /dev/null
++++ b/vendor/synopsys/scripts/lc.tcl
+@@ -0,0 +1,44 @@
++## Library compiler script
++
++set root ..
++source ${root}/scripts/util.tcl
++
++check_var target_lib_dir
++check_var target_lib_name
++check_var output_dir
++
++set lib_dir ${target_lib_dir}/timing
++set db_dir  ${output_dir}/db_nldm/
++
++set N 0
++set i 0
++set report {}
++foreach lib [glob -directory $lib_dir *.lib] {
++    info_msg "Reading lib: $lib"
++    set lib_name [file rootname [file tail $lib]]
++    ## fix wells:
++    set fix_dir fixed_libs
++    set fixed_lib ./$fix_dir/${lib_name}.lib
++    file mkdir $fix_dir
++    exec cat $lib | ${root}/scripts/fix_well_pg_type.py > $fixed_lib
++    info_msg "Fixed lib: $fixed_lib"
++    set lib $fixed_lib
++    info_msg "Reading lib: $lib"
++    read_lib $lib
++    file mkdir $db_dir
++    info_msg "Writing DB: ${db_dir}/${lib_name}.db"
++    set ret_code [write_lib $lib_name -output ${db_dir}/${lib_name}.db]
++    set lib [file normalize $lib]
++    if { $ret_code == 1 } {
++        append report " OK       $lib\n"
++    } {
++        incr i
++        append report " Error    $lib\n"
++    } 
++    incr N
++    #break
++}
++
++echo "\n\n\nSummary:\n$report\n${i}/${N} errors"
++
++exit
+diff --git a/vendor/synopsys/scripts/lm.tcl b/vendor/synopsys/scripts/lm.tcl
+new file mode 100644
+index 0000000..8f044ac
+--- /dev/null
++++ b/vendor/synopsys/scripts/lm.tcl
+@@ -0,0 +1,42 @@
++# ICC2 Library Manager
++
++set root ..
++source ${root}/scripts/util.tcl
++
++check_var target_lib_dir
++check_var target_lib_name
++check_var output_dir
++
++set lib_name ${output_dir}/mw 
++set ndm_file ${output_dir}/ndm/${target_lib_name}.ndm
++set tech_file ${root}/milkyway/${target_lib_name}.tf
++set layer_map ${root}/milkyway/${target_lib_name}.mw.map
++
++set db_dir "${output_dir}/db_nldm"
++set lef_dir "${output_dir}/lef"
++
++file mkdir ${output_dir}/ndm
++
++set cells_dir ${target_lib_dir}/cells
++set cells [lmap cell_dir [glob -directory $cells_dir *] { file tail $cell_dir }]
++
++set_app_options -name lib.workspace.save_design_views -value true
++set_app_options -name lib.workspace.save_layout_views -value true
++set_app_options -name lib.workspace.keep_all_physical_cells -value true
++
++create_workspace -technology $tech_file ${target_lib_name}_ws
++
++foreach lef_file [glob -directory ${lef_dir} *.lef] {
++    read_lef ${lef_file} -library ${target_lib_name} -cell_boundary by_cell_size
++}
++
++foreach db_file [glob -directory ${db_dir} *.db] {
++	read_db ${db_file}
++}
++set_process -label nominal -number 1 -libraries *
++set_pvt_configuration -clear_filter all -add -name all -process_labels [list nominal] -process_numbers {1} -voltages {1.28 1.35 1.4 1.44 1.56 1.6 1.65 1.76 1.8 1.95} -temperatures {-40 25 100}
++check_workspace -details all 
++
++commit_workspace -force -output $ndm_file
++
++exit
+diff --git a/vendor/synopsys/scripts/mw.tcl b/vendor/synopsys/scripts/mw.tcl
+new file mode 100644
+index 0000000..b38ebb6
+--- /dev/null
++++ b/vendor/synopsys/scripts/mw.tcl
+@@ -0,0 +1,129 @@
++source ./setup.tcl
++
++set root ..
++source ${root}/scripts/util.tcl
++
++check_var target_lib_dir
++check_var target_lib_name
++check_var output_dir
++
++set lib_name ${output_dir}/mw 
++set db_file ${output_dir}/db_nldm/${target_lib_name}__ss_n40C_1v28.db
++set tech_file ${root}/milkyway/${target_lib_name}.tf
++set layer_map ${root}/milkyway/${target_lib_name}.mw.map
++
++set cells_dir ${target_lib_dir}/cells
++set cells [lmap cell_dir [glob -directory $cells_dir *] { file tail $cell_dir }]
++
++file delete -force -- $lib_name
++create_mw_lib $lib_name -technology $tech_file -open
++
++foreach cell $cells {
++    foreach gds [glob -directory ${cells_dir}/${cell} *.gds] {
++        echo "Info-PE: reading GDS file: $gds"
++        read_gds \
++			-cell_version overwrite_existing_cell \
++			-boundary_layer_map 81 \
++			-ignore_undefined_layer \
++			-lib_name $lib_name \
++			-layer_mapping $layer_map \
++			$gds
++    }
++}
++
++# TODO: Add other special cell types
++scheme cmMarkCellType
++scheme setFormField "Mark Cell Type" "Cell Type" "tap"
++scheme setFormField "Mark Cell Type" "pattern match" "1"
++scheme setFormField "Mark Cell Type" "Cell Name" "*__tap_1.*"
++scheme setFormField "Mark Cell Type" "Cell Name" "*__tap_*"
++scheme setFormField "Mark Cell Type" "Cell Type" "tap"
++scheme formOK "Mark Cell Type"
++
++scheme auExtractBlockagePinVia
++scheme formButton "Extract Blockage" "extractPin"
++scheme formOK "Extract Blockage"
++
++# Set PR Boundary and create unitTile
++scheme auSetPRBdry
++scheme setFormField "Set PR Boundary" "Library Name" "${lib_name}"
++scheme setFormField "Set PR Boundary" "Tile Name" "unit"
++scheme setFormField "Set PR Boundary" "allOrN" "all"
++scheme setFormField "Set PR Boundary" "Left Boundary" "specify"
++scheme setFormField "Set PR Boundary" "Left Offset" "0.000"
++scheme setFormField "Set PR Boundary" "Left From" "Left Boundary"
++scheme setFormField "Set PR Boundary" "specify tile" "unit"
++scheme setFormField "Set PR Boundary" "Cell GROUND Rail Position" "Bottom"
++scheme setFormField "Set PR Boundary" "Cell P/G Rail Orientation" "Horizontal"
++scheme setFormField "Set PR Boundary" "Height" "specify"
++scheme setFormField "Set PR Boundary" "Height Value" "2.72"
++scheme setFormField "Set PR Boundary" "Width" "specify"
++scheme setFormField "Set PR Boundary" "Width Value" "0.46"
++scheme setFormField "Set PR Boundary" "Bottom Offset" "0.000000"
++scheme setFormField "Set PR Boundary" "Bottom Boundary" "specify"
++scheme setFormField "Set PR Boundary" "Bottom From" "Origin (0,0)"
++scheme setFormField "Set PR Boundary" "Width" "specify"
++scheme setFormField "Set PR Boundary" "Width Value" "0.46"
++scheme setFormField "Set PR Boundary" "Multiple (2x, 3x)" "based on cell height"
++scheme setFormField "Set PR Boundary" "1st Layer Parallel To P/G Rail" "Metal2"
++scheme setFormField "Set PR Boundary" "1st Layer Perpendicular To P/G Rail" "Metal1"
++scheme formButton "Set PR Boundary" "analyze"
++#scheme formApply "Set PR Boundary"
++scheme formOk "Set PR Boundary"
++
++## Fix Physical Only Cells 
++#set phy_cells "tap_1 tap_2 tapvgnd_1 tapvgnd2_1 tapvpwrvgnd_1 fill_1 fill_2 fill_4 fill_8"
++#for cel $phy_cells {
++#	scheme setFormField "Set PR Boundary" "allOrN" "only"
++#	scheme setFormField "Set PR Boundary" "Cell Name" "sky130_fd_sc_hd__${cel}"
++#	scheme setFormField "Set PR Boundary" "Multiple (2x, 3x)" "all cells are single-height"
++#	scheme formApply "Set PR Boundary"
++#}
++#scheme formCancel "Set PR Boundary"
++
++scheme axgDefineWireTracks
++axgDefineWireTracks
++setFormField "Define Wire Track" "polyDir" "vertical"
++setFormField "Define Wire Track" "m1Dir" "vertical"
++setFormField "Define Wire Track" "M1 Offset" "0.23"
++setFormField "Define Wire Track" "M2 Offset" "0.17"
++setFormField "Define Wire Track" "m2Dir" "horizontal"
++setFormField "Define Wire Track" "m3Dir" "vertical"
++setFormField "Define Wire Track" "m4Dir" "horizontal"
++setFormField "Define Wire Track" "m5Dir" "vertical"
++setFormField "Define Wire Track" "m6Dir" "horizontal"
++scheme formOK "Define Wire Track"
++
++# Define Power ports
++set power_pins_from_lib "VDD VPB"
++set ground_pins_from_lib "VSS VNB"
++if {$power_pins_from_lib ne "" && $ground_pins_from_lib ne ""} {
++   foreach ground_pin_from_lib $ground_pins_from_lib {
++    foreach power_pin_from_lib $power_pins_from_lib {
++      dbSetCellPortTypes $lib_name "*" [list [list $power_pin_from_lib "Inout" "Power"] [list $ground_pin_from_lib "Inout" "Ground"]] 1
++      }
++    }
++  } 
++
++update_mw_port_by_db \
++	-update_analog_pin	\
++	-bias_pg	\
++	-db_file $db_file \
++	-mw_lib $lib_name
++
++scheme auLoadCLF
++scheme setFormField "Load CLF File" "Load CLF File Without Timing Related Information" "1"
++scheme setFormField "Load CLF File" "CLF File Name" "${root}/milkyway/${target_lib_name}.antenna.clf"
++scheme setFormField "Load CLF File" "Library Name" "${lib_name}"
++scheme formOK "Load CLF File"
++
++# Export LEF
++file mkdir ${output_dir}/lef
++foreach_in_collection cell [get_mw_cels] {
++	set cname [get_attribute ${cell} name]
++        set lef_file ${output_dir}/lef/${cname}.lef
++        info_msg "Writing LEF: $lef_file"
++	write_lef -lib_name ${lib_name} -ignore_tech_info -output_cell ${cname} $lef_file 
++}
++close_mw_lib -save
++exit
+diff --git a/vendor/synopsys/scripts/skywater130_setup.tcl b/vendor/synopsys/scripts/skywater130_setup.tcl
+new file mode 100644
+index 0000000..9e1abfc
+--- /dev/null
++++ b/vendor/synopsys/scripts/skywater130_setup.tcl
+@@ -0,0 +1,32 @@
++#set DESIGN_REF_PATH "/u/powercae/paths/libs/all_libs/google-skywater"
++
++## pg_type fix:
++set DESIGN_REF_PATH "/slowfs/cae678/diegob/testing/powercae_scripts/libraries/google-skywater/results"
++
++set high_density " \
++	sky130_fd_sc_hd__ss_n40C_1v28.db \
++	"
++set LIBRARY_FILES " \
++	${high_density} \
++    "
++
++set MW_REFERENCE_LIB_DIRS  " \
++	${DESIGN_REF_PATH}/lib/sky130_fd_sc_hd/mw/sky130_fd_sc_hd
++       " 
++
++set NDM_REFERENCE_LIB_DIRS  " \
++	${DESIGN_REF_PATH}/lib/sky130_fd_sc_hd/ndm/sky130_fd_sc_hd.ndm
++       " 
++set TECH_FILE        "${DESIGN_REF_PATH}/tech/milkyway/skywater130_fd_sc_hd.tf"
++set MAP_FILE         "${DESIGN_REF_PATH}/tech/star_rcxt/skywater130.mw2itf.map"
++set TLUPLUS_MAX_FILE "${DESIGN_REF_PATH}/tech/star_rcxt/skywater130.nominal.tluplus"
++set TLUPLUS_MIN_FILE "${DESIGN_REF_PATH}/tech/star_rcxt/skywater130.nominal.tluplus"
++
++set MW_POWER_NET                "VDD" ;#
++set MW_POWER_PORT               "VDD" ;#
++set MW_GROUND_NET               "VSS" ;#
++set MW_GROUND_PORT              "VSS" ;#
++
++set MIN_ROUTING_LAYER            "M2"   ;# Min routing layer
++set MAX_ROUTING_LAYER            "M8"   ;# Max routing layer
++
+diff --git a/vendor/synopsys/scripts/util.tcl b/vendor/synopsys/scripts/util.tcl
+new file mode 100644
+index 0000000..1495f4d
+--- /dev/null
++++ b/vendor/synopsys/scripts/util.tcl
+@@ -0,0 +1,22 @@
++proc _msg { prefix msg } {
++    echo "${prefix}-PE: [join $msg { }] - [date]"
++}
++
++proc error_msg { args } {
++    _msg "Error" $args
++}
++
++proc info_msg { args } {
++    _msg "Info" $args
++}
++
++proc debug_msg { args } {
++    _msg "Debug" $args
++}
++
++proc check_var { name } {
++    if { ! [uplevel #0 "info exists $name"] } {
++        error_msg "var $name does not exists"
++        exit 1
++    }
++}
+diff --git a/vendor/synopsys/star_rcxt/skywater130.nominal.itf b/vendor/synopsys/star_rcxt/skywater130.nominal.itf
+new file mode 100644
+index 0000000..68f8580
+--- /dev/null
++++ b/vendor/synopsys/star_rcxt/skywater130.nominal.itf
+@@ -0,0 +1,43 @@
++TECHNOLOGY = skywater130_nominal 
++GLOBAL_TEMPERATURE = 25
++DIELECTRIC PI1	{THICKNESS=6.1346  ER=2.94 MEASURED_FROM = TOPNIT}
++DIELECTRIC TOPNIT	{THICKNESS=0.3777    ER=7.5  MEASURED_FROM = NILD6 }
++DIELECTRIC TOPNIT_C	{THICKNESS=0    ER=7.5  SW_T = 0.423 TW_T=0.54 IS_CONFORMAL }
++DIELECTRIC TOPOX	{ER=3.9 THICKNESS=0 MEASURED_FROM = TOP_OF_CHIP SW_T = 0.07 TW_T=0.09 IS_CONFORMAL ASSOCIATED_CONDUCTOR = met5 }
++CONDUCTOR met5 {THICKNESS=1.26  WMIN=0.8 SMIN=1.6 RPSQ=0.0285 CRT1=0.0035 CRT2=-7.5e-7 CAPACITIVE_ONLY_ETCH=0 RESISTIVE_ONLY_ETCH=-0.045}
++
++DIELECTRIC NILD6 	{THICKNESS=1.350  MEASURED_FROM = NILD5   ER=4.0 }
++CONDUCTOR met4 {THICKNESS=0.845 WMIN=0.3 SMIN=0.3 RPSQ=0.047 CRT1=0.003425 CRT2=-7.739e-7 CAPACITIVE_ONLY_ETCH=0 RESISTIVE_ONLY_ETCH=-0.0125}
++
++DIELECTRIC NILD5 	{THICKNESS=1.235   MEASURED_FROM = NILD4   ER=4.1 }
++CONDUCTOR met3 {THICKNESS=0.845 WMIN=0.3 SMIN=0.3 RPSQ=0.047 CRT1=0.003424 CRT2=-7.739e-7 CAPACITIVE_ONLY_ETCH=0 RESISTIVE_ONLY_ETCH=-0.0125}
++
++DIELECTRIC NILD4 	{THICKNESS=0.78  MEASURED_FROM = NILD3  ER=4.2 }
++DIELECTRIC NILD4_C 	{THICKNESS=0    ER=3.5 MEASURED_FROM = TOP_OF_CHIP SW_T = 0.03 TW_T=0 IS_CONFORMAL ASSOCIATED_CONDUCTOR = met2 }
++CONDUCTOR met2 {THICKNESS=0.36  WMIN=0.14 SMIN=0.14 RPSQ=0.125 CRT1=0.003161 CRT2=-7.272e-7 CAPACITIVE_ONLY_ETCH=0 RESISTIVE_ONLY_ETCH=-0.0195 }
++
++DIELECTRIC NILD3 	{THICKNESS=0.63  MEASURED_FROM = NILD2  ER=4.5 }
++DIELECTRIC NILD3_C 	{THICKNESS=0   ER=3.5 MEASURED_FROM =  TOP_OF_CHIP SW_T = 0.03 TW_T=0 IS_CONFORMAL ASSOCIATED_CONDUCTOR = met1 }
++CONDUCTOR met1 {THICKNESS=0.36  WMIN=0.14 SMIN=0.14 RPSQ=0.125 CRT1=0.003179 CRT2=3.094e-7 CAPACITIVE_ONLY_ETCH=0 RESISTIVE_ONLY_ETCH=-0.0195}
++
++DIELECTRIC NILD2 	{THICKNESS=0.365  MEASURED_FROM = PSG ER=4.05 }
++DIELECTRIC lint 	{THICKNESS=0.175    ER=7.3 MEASURED_FROM = PSG  }
++DIELECTRIC lint_C 	{THICKNESS=0    ER=7.3 MEASURED_FROM = TOP_OF_CHIP SW_T = 0.061 TW_T=0.075 IS_CONFORMAL ASSOCIATED_CONDUCTOR = li1}
++CONDUCTOR li1 {THICKNESS=0.1  WMIN=0.17 SMIN=0.17 RPSQ=12.8 CRT1=0.0006045 CRT2=-3.693e-7 CAPACITIVE_ONLY_ETCH=0 RESISTIVE_ONLY_ETCH=0.0085 }
++
++DIELECTRIC PSG 		{THICKNESS=0.6099  MEASURED_FROM = FOX ER=3.9 }
++DIELECTRIC SPNIT	{THICKNESS=0   ER=7.5  SW_T = 0.0431 TW_T=0.1210 IS_CONFORMAL }
++DIELECTRIC IOX 		{THICKNESS=0   ER=3.9  SW_T = 0.0061 TW_T=0 IS_CONFORMAL ASSOCIATED_CONDUCTOR = fieldpoly}
++CONDUCTOR fieldpoly {THICKNESS=0.18  WMIN=0.15 SMIN=0.21 RPSQ=48.2 CRT1=0.0008916 CRT2=8.443e-7 CAPACITIVE_ONLY_ETCH=0 RESISTIVE_ONLY_ETCH=-0.0280}
++
++DIELECTRIC FOX 		{THICKNESS=0.3262   ER=3.9 }
++CONDUCTOR  DIFF   	{IS_DIFF THICKNESS=0.12 WMIN=0.12 SMIN=0.14 RPSQ=197}
++DIELECTRIC PSUB	  	{THICKNESS=0.120    ER=3.9 }
++
++VIA via4 { FROM=met5   TO=met4      AREA=0.67 RPV=0.38 CRT1=0.001770 CRT2=-1.600e-7 }
++VIA via3 { FROM=met4   TO=met3      AREA=0.04 RPV=3.41 CRT1=0.002366 CRT2=-1.025e-5 }
++VIA via2 { FROM=met3   TO=met2      AREA=0.04 RPV=3.41 CRT1=0.002366 CRT2=-1.025e-5 }
++VIA via  { FROM=met2   TO=met1      AREA=0.0225 RPV=4.5 CRT1=0.001081 CRT2=-1.903e-7 }
++VIA mcon { FROM=met1   TO=li1       AREA=0.0289 RPV=9.3 CRT1=0.001067 CRT2=-5.324e-6 }
++VIA licon{ FROM=li1    TO=fieldpoly     AREA=0.0289 RPV=152 CRT1=0.001249 CRT2=-6.647e-6 }
++VIA con{ FROM=li1    TO=DIFF AREA=0.0289 RPV=15 }
